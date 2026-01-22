@@ -2,40 +2,49 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Inter, Roboto_Mono } from 'next/font/google'; // Font số chuẩn tài chính
+import { Inter, Roboto_Mono, Be_Vietnam_Pro } from 'next/font/google';
 import { 
-  AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
+  AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
 } from 'recharts';
 import { 
-  Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, 
-  Settings, ChevronDown, Layers
+  Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
+  Settings, ChevronDown, Layers, BarChart2
 } from 'lucide-react';
 
-// Cấu hình Font
-const inter = Inter({ subsets: ['latin'] });
-const robotoMono = Roboto_Mono({ subsets: ['latin'] }); // Font số đẹp
+// Cấu hình Font (Ưu tiên Be Vietnam Pro cho tiếng Việt)
+const beVietnam = Be_Vietnam_Pro({ 
+  subsets: ['latin', 'vietnamese'], 
+  weight: ['400', '500', '600', '700', '800'] 
+});
+const robotoMono = Roboto_Mono({ subsets: ['latin'] });
 
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
-  const [chartType, setChartType] = useState('baseline'); // Loại biểu đồ
+  const [chartType, setChartType] = useState('baseline'); // Mặc định là Baseline
 
-  // Hàm tạo dữ liệu Chart giả lập (OHLC giả để demo)
+  // Hàm tạo dữ liệu Chart giả lập (OHLC)
   const generateChartData = (basePrice) => {
     const data = [];
     let price = basePrice;
+    // Giá mở cửa (cố định để làm mốc cho Baseline)
     const openRef = basePrice * (1 + (Math.random() * 0.05 - 0.025)); 
     
     for (let i = 0; i < 24; i++) {
+      let prevPrice = price;
+      // Tạo biến động ngẫu nhiên
       price = price * (1 + (Math.random() * 0.04 - 0.02)); 
+      
       data.push({ 
         time: `${i}:00`, 
-        price: price,
-        open: openRef,
-        high: price * 1.01,
-        low: price * 0.99
+        price: price,           // Giá dùng cho Line/Area chart
+        open: openRef,          // Giá mở cửa chung (Baseline reference)
+        candleOpen: prevPrice,  // Giá mở của cây nến cụ thể
+        candleClose: price,     // Giá đóng của cây nến cụ thể
+        // Dữ liệu cho Bar chart dạng nến [min, max]
+        candleRange: [Math.min(prevPrice, price), Math.max(prevPrice, price)] 
       });
     }
     return data;
@@ -60,7 +69,7 @@ export default function Home() {
           setCryptos(enrichedData);
           setSelectedCoin(enrichedData[0]);
         } else {
-          // Mock Data
+          // Dữ liệu mẫu
           const mockData = [
             { symbol: 'BTC', name: 'Bitcoin', price_vnd: 2350000000, price: 89594.59, change_24h: -0.33, compliance_score: 95 },
             { symbol: 'ETH', name: 'Ethereum', price_vnd: 82500000, price: 2950.34, change_24h: -2.33, compliance_score: 92 },
@@ -88,25 +97,32 @@ export default function Home() {
 
   const formatVND = (num) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(num);
 
-  // --- Logic Gradient Baseline ---
+  // --- THUẬT TOÁN TÔ MÀU BASELINE (Đã sửa lại chuẩn) ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
+    
+    // Tìm max/min của toàn bộ dữ liệu hiển thị
     const dataMax = Math.max(...data.map((i) => i.price));
     const dataMin = Math.min(...data.map((i) => i.price));
-    const openPrice = data[0].open;
+    const openPrice = data[0].open; // Giá tham chiếu
 
+    // Nếu giá mở cửa nằm ngoài phạm vi biểu đồ
     if (dataMax <= dataMin) return 0;
-    if (openPrice >= dataMax) return 0;
-    if (openPrice <= dataMin) return 1;
+    if (openPrice >= dataMax) return 0; // Toàn bộ đỏ (vì giá luôn thấp hơn mở cửa)
+    if (openPrice <= dataMin) return 1; // Toàn bộ xanh (vì giá luôn cao hơn mở cửa)
 
+    // Tính tỷ lệ vị trí của đường tham chiếu
     return (dataMax - openPrice) / (dataMax - dataMin);
   };
-  const off = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
+  
+  const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
+  // ---------------------------------------------------
 
-  // --- Render Chart Component ---
+  // --- RENDER CHART ---
   const renderChart = () => {
     if (!selectedCoin) return null;
 
+    // Trục tọa độ chung
     const CommonAxis = () => (
       <>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
@@ -120,13 +136,31 @@ export default function Home() {
           tickFormatter={(val) => `$${val.toLocaleString()}`}
         />
         <Tooltip 
-          contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}
-          formatter={(value) => [`$${value.toLocaleString()}`, 'Price']}
+          contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
+          formatter={(value) => [`$${value.toLocaleString()}`, 'Giá']}
           labelStyle={{color: '#94A3B8'}}
         />
       </>
     );
 
+    // 1. Biểu đồ Nến (Mô phỏng bằng Bar Chart range)
+    if (chartType === 'candle') {
+      return (
+        <BarChart data={selectedCoin.chartData}>
+          <CommonAxis />
+          <Bar dataKey="candleRange" animationDuration={1000}>
+            {selectedCoin.chartData.map((entry, index) => (
+              <Cell 
+                key={`cell-${index}`} 
+                fill={entry.candleClose >= entry.candleOpen ? '#10B981' : '#EF4444'} 
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      );
+    }
+
+    // 2. Biểu đồ Đường (Line)
     if (chartType === 'line') {
       return (
         <LineChart data={selectedCoin.chartData}>
@@ -135,16 +169,8 @@ export default function Home() {
         </LineChart>
       );
     }
-    
-    if (chartType === 'bar') {
-      return (
-        <BarChart data={selectedCoin.chartData}>
-          <CommonAxis />
-          <Bar dataKey="price" fill="#3B82F6" animationDuration={1000} radius={[4, 4, 0, 0]} />
-        </BarChart>
-      );
-    }
 
+    // 3. Biểu đồ Vùng Núi (Mountain)
     if (chartType === 'mountain') {
       return (
         <AreaChart data={selectedCoin.chartData}>
@@ -160,26 +186,24 @@ export default function Home() {
       );
     }
 
-    // Default: Baseline
+    // 4. Biểu đồ Baseline (Mặc định)
     return (
       <AreaChart data={selectedCoin.chartData}>
         <defs>
-          <linearGradient id="colorBaseline" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#10B981" stopOpacity={0.1}/>
-            <stop offset={off} stopColor="#10B981" stopOpacity={0.01}/>
-            <stop offset={off} stopColor="#EF4444" stopOpacity={0.01}/>
-            <stop offset="1" stopColor="#EF4444" stopOpacity={0.1}/>
+          <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
+            <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /> {/* Vùng Xanh */}
+            <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /> {/* Vùng Đỏ */}
           </linearGradient>
         </defs>
         <CommonAxis />
-        <ReferenceLine y={selectedCoin.chartData[0]?.open} stroke="#94A3B8" strokeDasharray="3 3" />
+        {/* Đường kẻ ngang tham chiếu (Giá mở cửa) */}
+        <ReferenceLine y={selectedCoin.chartData[0]?.open} stroke="#64748B" strokeDasharray="3 3" />
         <Area 
           type="monotone" 
           dataKey="price" 
           stroke={selectedCoin.chartData[selectedCoin.chartData.length-1].price >= selectedCoin.chartData[0].open ? "#10B981" : "#EF4444"} 
           strokeWidth={3} 
-          fillOpacity={1} 
-          fill="url(#colorBaseline)" 
+          fill="url(#splitColor)" 
           animationDuration={1000}
         />
       </AreaChart>
@@ -187,18 +211,18 @@ export default function Home() {
   };
 
   return (
-    <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
+    <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${beVietnam.className} pb-10`}>
       
       {/* BANNER CONSENT */}
       {showConsent && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-[0_-5px_30px_rgba(0,0,0,0.15)] z-[100] p-6 animate-in slide-in-from-bottom duration-300">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="text-sm text-slate-600">
-              <span className="font-bold text-slate-900 block mb-1 text-base">Privacy & Data Policy</span>
-              This site uses cookies to personalize your experience and analyze market trends. By continuing, you agree to our Terms of Service.
+              <span className="font-bold text-slate-900 block mb-1 text-base">Chính sách Dữ liệu & Quyền riêng tư</span>
+              Trang web này là một phần của hệ sinh thái <strong>VNMetrics</strong>. Bằng việc tiếp tục sử dụng, bạn đồng ý với Điều khoản dịch vụ và Chính sách bảo mật của chúng tôi.
             </div>
             <div className="flex gap-3 whitespace-nowrap">
-              <button onClick={handleAccept} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded transition">I Agree</button>
+              <button onClick={handleAccept} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded transition">Tôi Đồng ý</button>
             </div>
           </div>
         </div>
@@ -212,15 +236,15 @@ export default function Home() {
             <span className="font-extrabold text-xl tracking-tight text-slate-900">VNMetrics<span className="text-blue-600">.io</span></span>
           </div>
           <div className="hidden md:flex gap-8 text-sm font-bold text-slate-600">
-            <a href="#" className="text-blue-800">Market</a>
-            <a href="#" className="hover:text-slate-900">Analytics</a>
-            <a href="#" className="hover:text-slate-900">Data</a>
+            <a href="#" className="text-blue-800">Thị trường</a>
+            <a href="#" className="hover:text-slate-900">Phân tích</a>
+            <a href="#" className="hover:text-slate-900">Doanh nghiệp</a>
           </div>
-          <button className="bg-slate-900 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-slate-800 transition">Connect</button>
+          <button className="bg-slate-900 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-slate-800 transition">Đăng nhập</button>
         </div>
       </nav>
 
-      {/* --- LIVE MARKETS (COLORED CARDS) --- */}
+      {/* --- LIVE MARKETS (TICKER CÓ MÀU) --- */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-4">
@@ -228,7 +252,7 @@ export default function Home() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-600"></span>
             </span>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Live Markets</h2>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Thị trường Trực tiếp</h2>
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -236,7 +260,7 @@ export default function Home() {
               const isUp = coin.change_24h >= 0;
               const isSelected = selectedCoin?.symbol === coin.symbol;
               
-              // Màu nền: Dịu mắt hơn, không quá chói
+              // Màu nền: Xanh ngọc / Hồng nhạt
               const bgClass = isUp ? 'bg-[#ECFDF5] border-[#D1FAE5]' : 'bg-[#FFF1F2] border-[#FFE4E6]';
               const textClass = isUp ? 'text-[#059669]' : 'text-[#E11D48]';
 
@@ -287,19 +311,19 @@ export default function Home() {
                  </div>
               </div>
               
-              {/* DROPDOWN CHỌN CHART */}
+              {/* DROPDOWN CHỌN CHART (TIẾNG VIỆT) */}
               <div className="relative group">
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 cursor-pointer hover:bg-slate-100 transition">
-                  <Layers size={16} className="text-slate-500"/>
+                  <BarChart2 size={16} className="text-slate-500"/>
                   <select 
                     value={chartType}
                     onChange={(e) => setChartType(e.target.value)}
                     className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6"
                   >
-                    <option value="mountain">Mountain Chart</option>
-                    <option value="baseline">Baseline Chart</option>
-                    <option value="line">Line Chart</option>
-                    <option value="bar">Bar Chart</option>
+                    <option value="baseline">Biểu đồ Baseline</option>
+                    <option value="candle">Biểu đồ Nến (Candle)</option>
+                    <option value="mountain">Biểu đồ Vùng (Mountain)</option>
+                    <option value="line">Biểu đồ Đường (Line)</option>
                   </select>
                   <ChevronDown size={14} className="absolute right-3 text-slate-400 pointer-events-none"/>
                 </div>
@@ -320,17 +344,17 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-            <h3 className="font-bold text-slate-800 text-lg">Market Overview</h3>
-            <button className="text-xs font-bold text-blue-700 bg-blue-50 px-3 py-1.5 rounded border border-blue-100 hover:bg-blue-100">View All</button>
+            <h3 className="font-bold text-slate-800 text-lg">Tổng quan Thị trường</h3>
+            <button className="text-xs font-bold text-blue-700 bg-blue-50 px-3 py-1.5 rounded border border-blue-100 hover:bg-blue-100">Xem tất cả</button>
           </div>
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-500 uppercase bg-slate-50/50 font-bold border-b border-slate-200">
               <tr>
-                <th className="px-6 py-4">Asset</th>
-                <th className="px-6 py-4 text-right">Price (VND)</th>
-                <th className="px-6 py-4 text-right">Price (USD)</th>
-                <th className="px-6 py-4 text-right">Change</th>
-                <th className="px-6 py-4 text-center">Compliance</th>
+                <th className="px-6 py-4">Tài sản</th>
+                <th className="px-6 py-4 text-right">Giá (VND)</th>
+                <th className="px-6 py-4 text-right">Giá (USD)</th>
+                <th className="px-6 py-4 text-right">Biến động</th>
+                <th className="px-6 py-4 text-center">Tuân thủ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -360,7 +384,7 @@ export default function Home() {
                       coin.compliance_score >= 80 ? 'bg-green-50 text-green-700 border-green-200' : 
                       'bg-amber-50 text-amber-700 border-amber-200'
                     }`}>
-                      {coin.compliance_score}/100
+                      {coin.compliance_score >= 80 ? 'An toàn' : 'Cảnh báo'} ({coin.compliance_score})
                     </span>
                   </td>
                 </tr>
@@ -370,27 +394,40 @@ export default function Home() {
         </div>
       </main>
 
-      {/* FOOTER - DISCLAIMER THEO YÊU CẦU */}
-      <footer className="bg-[#0F172A] text-slate-400 py-12 mt-12 border-t border-slate-800">
+      {/* --- FOOTER: PHÁP LÝ (TIẾNG VIỆT THEO YÊU CẦU) --- */}
+      <footer className="bg-slate-900 text-slate-400 py-12 mt-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-6">
-             <ShieldCheck className="text-amber-500" size={24} />
-             <h3 className="font-bold text-white uppercase tracking-wider text-sm">IMPORTANT DISCLAIMER</h3>
+             <ShieldAlert className="text-yellow-500" size={24} />
+             <h3 className="font-bold text-white uppercase tracking-wider">Miễn trừ trách nhiệm quan trọng</h3>
           </div>
           
-          <div className="text-[11px] leading-relaxed text-justify opacity-80 font-medium space-y-4">
-            <p>
-              All content provided herein our website, hyperlinked sites, associated applications, forums, blogs, social media accounts and other platforms (“Site”) is for your general information only, procured from third party sources. We make no warranties of any kind in relation to our content, including but not limited to accuracy and updatedness.
-            </p>
-            <p>
-              No part of the content that we provide constitutes financial advice, legal advice or any other form of advice meant for your specific reliance for any purpose. Any use or reliance on our content is solely at your own risk and discretion. You should conduct your own research, review, analyse and verify our content before relying on them.
-            </p>
-            <p className="border-l-4 border-amber-500 pl-4 py-1 text-white bg-white/5">
-              Trading is a highly risky activity that can lead to major losses, please therefore consult your financial advisor before making any decision. No content on our Site is meant to be a solicitation or offer.
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-xs leading-relaxed text-justify">
+            <div>
+              <p className="mb-4">
+                <strong>THÔNG TIN THAM KHẢO:</strong> Toàn bộ nội dung được cung cấp trên website này, các trang liên kết, ứng dụng, diễn đàn và các nền tảng mạng xã hội khác ("Trang") chỉ nhằm mục đích cung cấp thông tin chung và được thu thập từ các nguồn bên thứ ba.
+              </p>
+              <p className="mb-4">
+                <strong>KHÔNG ĐẢM BẢO TÍNH CHÍNH XÁC:</strong> Chúng tôi không đưa ra bất kỳ bảo đảm nào dưới bất kỳ hình thức nào liên quan đến nội dung của chúng tôi, bao gồm nhưng không giới hạn ở sự chính xác và tính cập nhật.
+              </p>
+              <p>
+                <strong>KHÔNG PHẢI LỜI KHUYÊN:</strong> Không có phần nào trong nội dung mà chúng tôi cung cấp cấu thành lời khuyên tài chính, lời khuyên pháp lý hoặc bất kỳ hình thức tư vấn nào khác dành riêng cho sự tin cậy của bạn cho bất kỳ mục đích nào.
+              </p>
+            </div>
+            <div>
+               <p className="mb-4">
+                <strong>TỰ CHỊU TRÁCH NHIỆM:</strong> Việc sử dụng hoặc phụ thuộc vào nội dung của chúng tôi hoàn toàn do bạn tự chịu rủi ro và theo quyết định của riêng bạn. Bạn nên tiến hành nghiên cứu, rà soát, phân tích và xác minh nội dung của chúng tôi trước khi dựa vào chúng.
+               </p>
+               <p className="mb-4">
+                <strong>RỦI RO CAO:</strong> Giao dịch là một hoạt động có rủi ro cao có thể dẫn đến thua lỗ lớn, do đó vui lòng tham khảo ý kiến cố vấn tài chính của bạn trước khi đưa ra bất kỳ quyết định nào.
+               </p>
+               <p className="text-white font-bold border-l-2 border-yellow-500 pl-3">
+                Không có nội dung nào trên Trang của chúng tôi được hiểu là sự chào mời hoặc đề nghị mua bán.
+               </p>
+            </div>
           </div>
 
-          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500 font-bold">
+          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500">
             <p>&copy; 2026 VNMetrics Enterprise Data Ltd. All rights reserved.</p>
           </div>
         </div>
