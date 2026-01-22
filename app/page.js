@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Inter, Roboto_Mono, Be_Vietnam_Pro } from 'next/font/google';
+import { Be_Vietnam_Pro, Roboto_Mono } from 'next/font/google';
 import { 
-  AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  Settings, ChevronDown, Layers, BarChart2
+  ChevronDown, ChevronUp, HelpCircle, Calendar
 } from 'lucide-react';
 
-// Cấu hình Font (Ưu tiên Be Vietnam Pro cho tiếng Việt)
+// Font chữ
 const beVietnam = Be_Vietnam_Pro({ 
   subsets: ['latin', 'vietnamese'], 
   weight: ['400', '500', '600', '700', '800'] 
@@ -23,30 +23,55 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
-  const [chartType, setChartType] = useState('baseline'); // Mặc định là Baseline
+  const [timeRange, setTimeRange] = useState('1D'); // 1D, 1W, 1M...
+  const [openFaqIndex, setOpenFaqIndex] = useState(0); // Accordion FAQ
 
-  // Hàm tạo dữ liệu Chart giả lập (OHLC)
-  const generateChartData = (basePrice) => {
+  // Dữ liệu FAQ chuẩn pháp lý Việt Nam (Dựa trên NQ 05/2025)
+  const faqs = [
+    {
+      question: "Tài sản số (Crypto) có được coi là phương tiện thanh toán tại Việt Nam không?",
+      answer: "Không. Theo quy định hiện hành của Ngân hàng Nhà nước, Bitcoin và các loại tiền mã hóa khác không phải là phương tiện thanh toán hợp pháp. Việc sử dụng chúng để thanh toán hàng hóa, dịch vụ là vi phạm pháp luật. Tuy nhiên, việc nắm giữ như một loại tài sản đầu tư (digital asset) không bị cấm trong Bộ luật Dân sự."
+    },
+    {
+      question: "Nhà đầu tư có phải đóng thuế khi giao dịch tài sản số không?",
+      answer: "Hiện tại Bộ Tài chính đang xây dựng khung pháp lý cụ thể về thuế đối với tài sản số. Tuy nhiên, theo nguyên tắc quản lý thuế, mọi khoản thu nhập phát sinh đều thuộc diện chịu thuế. Nhà đầu tư được khuyến nghị kê khai minh bạch để đảm bảo quyền lợi khi khung pháp lý hoàn thiện."
+    },
+    {
+      question: "VNMetrics có phải là sàn giao dịch không?",
+      answer: "Không. VNMetrics là Cổng dữ liệu và Phân tích thị trường độc lập. Chúng tôi không cung cấp dịch vụ mua bán, môi giới, hay giữ tiền của người dùng. Mọi dữ liệu chỉ mang tính chất tham khảo (Informational Purpose Only)."
+    },
+    {
+      question: "Làm sao để đảm bảo an toàn khi tham gia thị trường này?",
+      answer: "Thị trường tài sản số có biên độ dao động rất lớn. Người dùng cần: (1) Chỉ giao dịch trên các nền tảng uy tín quốc tế; (2) Tuyệt đối không ủy thác đầu tư cho các hội nhóm cam kết lãi suất cao; (3) Tự bảo quản khóa cá nhân (Private Key) cẩn thận."
+    }
+  ];
+
+  // Hàm tạo dữ liệu Chart giả lập theo khung thời gian
+  const generateChartData = (basePrice, range) => {
     const data = [];
     let price = basePrice;
-    // Giá mở cửa (cố định để làm mốc cho Baseline)
-    const openRef = basePrice * (1 + (Math.random() * 0.05 - 0.025)); 
-    
-    for (let i = 0; i < 24; i++) {
-      let prevPrice = price;
-      // Tạo biến động ngẫu nhiên
-      price = price * (1 + (Math.random() * 0.04 - 0.02)); 
-      
+    let points = 24; // Mặc định 1D (24 giờ)
+    let volatility = 0.02;
+
+    if (range === '1W') { points = 7; volatility = 0.05; }
+    if (range === '1M') { points = 30; volatility = 0.1; }
+    if (range === '1Y') { points = 12; volatility = 0.2; }
+    if (range === 'ALL') { points = 50; volatility = 0.3; }
+
+    // Giá mở cửa (Reference Price)
+    const openRef = basePrice * (1 + (Math.random() * volatility - (volatility/2)));
+
+    for (let i = 0; i < points; i++) {
+      price = price * (1 + (Math.random() * volatility - (volatility/2))); 
       data.push({ 
-        time: `${i}:00`, 
-        price: price,           // Giá dùng cho Line/Area chart
-        open: openRef,          // Giá mở cửa chung (Baseline reference)
-        candleOpen: prevPrice,  // Giá mở của cây nến cụ thể
-        candleClose: price,     // Giá đóng của cây nến cụ thể
-        // Dữ liệu cho Bar chart dạng nến [min, max]
-        candleRange: [Math.min(prevPrice, price), Math.max(prevPrice, price)] 
+        time: range === '1D' ? `${i}:00` : `T${i+1}`, 
+        price: price,
+        open: openRef // Đường tham chiếu cố định
       });
     }
+    // Đảm bảo điểm cuối cùng khớp giá hiện tại để chart đẹp
+    data[data.length - 1].price = basePrice;
+    
     return data;
   };
 
@@ -64,12 +89,12 @@ export default function Home() {
         if (dbData && dbData.length > 0) {
           const enrichedData = dbData.map(coin => ({
             ...coin,
-            chartData: generateChartData(coin.price)
+            chartData: generateChartData(coin.price, '1D') // Mặc định load 1D
           }));
           setCryptos(enrichedData);
           setSelectedCoin(enrichedData[0]);
         } else {
-          // Dữ liệu mẫu
+          // Mock Data
           const mockData = [
             { symbol: 'BTC', name: 'Bitcoin', price_vnd: 2350000000, price: 89594.59, change_24h: -0.33, compliance_score: 95 },
             { symbol: 'ETH', name: 'Ethereum', price_vnd: 82500000, price: 2950.34, change_24h: -2.33, compliance_score: 92 },
@@ -77,7 +102,7 @@ export default function Home() {
             { symbol: 'XRP', name: 'XRP', price_vnd: 28500, price: 1.92, change_24h: 2.13, compliance_score: 75 },
             { symbol: 'DOGE', name: 'Dogecoin', price_vnd: 3500, price: 0.1244, change_24h: -2.15, compliance_score: 60 },
           ];
-          const enrichedMock = mockData.map(c => ({ ...c, chartData: generateChartData(c.price) }));
+          const enrichedMock = mockData.map(c => ({ ...c, chartData: generateChartData(c.price, '1D') }));
           setCryptos(enrichedMock);
           setSelectedCoin(enrichedMock[0]);
         }
@@ -90,6 +115,16 @@ export default function Home() {
     fetchData();
   }, []);
 
+  // Xử lý khi bấm nút thời gian (1D, 1W...)
+  const handleTimeChange = (range) => {
+    setTimeRange(range);
+    if (selectedCoin) {
+      // Regenerate data cho coin đang chọn
+      const newData = generateChartData(selectedCoin.price, range);
+      setSelectedCoin({ ...selectedCoin, chartData: newData });
+    }
+  };
+
   const handleAccept = () => {
     localStorage.setItem('vnmetrics_consent', 'true');
     setShowConsent(false);
@@ -97,118 +132,21 @@ export default function Home() {
 
   const formatVND = (num) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(num);
 
-  // --- THUẬT TOÁN TÔ MÀU BASELINE (Đã sửa lại chuẩn) ---
+  // --- THUẬT TOÁN TÔ MÀU BASELINE (CoinMarketCap Style) ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
-    
-    // Tìm max/min của toàn bộ dữ liệu hiển thị
     const dataMax = Math.max(...data.map((i) => i.price));
     const dataMin = Math.min(...data.map((i) => i.price));
-    const openPrice = data[0].open; // Giá tham chiếu
+    const openRef = data[0].open;
 
-    // Nếu giá mở cửa nằm ngoài phạm vi biểu đồ
     if (dataMax <= dataMin) return 0;
-    if (openPrice >= dataMax) return 0; // Toàn bộ đỏ (vì giá luôn thấp hơn mở cửa)
-    if (openPrice <= dataMin) return 1; // Toàn bộ xanh (vì giá luôn cao hơn mở cửa)
+    if (openRef >= dataMax) return 0;
+    if (openRef <= dataMin) return 1;
 
-    // Tính tỷ lệ vị trí của đường tham chiếu
-    return (dataMax - openPrice) / (dataMax - dataMin);
+    return (dataMax - openRef) / (dataMax - dataMin);
   };
-  
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
-  // ---------------------------------------------------
-
-  // --- RENDER CHART ---
-  const renderChart = () => {
-    if (!selectedCoin) return null;
-
-    // Trục tọa độ chung
-    const CommonAxis = () => (
-      <>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-        <XAxis dataKey="time" hide />
-        <YAxis 
-          domain={['auto', 'auto']} 
-          orientation="right" 
-          tick={{fontSize: 12, fill: '#64748B', fontFamily: 'monospace'}} 
-          axisLine={false} 
-          tickLine={false} 
-          tickFormatter={(val) => `$${val.toLocaleString()}`}
-        />
-        <Tooltip 
-          contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
-          formatter={(value) => [`$${value.toLocaleString()}`, 'Giá']}
-          labelStyle={{color: '#94A3B8'}}
-        />
-      </>
-    );
-
-    // 1. Biểu đồ Nến (Mô phỏng bằng Bar Chart range)
-    if (chartType === 'candle') {
-      return (
-        <BarChart data={selectedCoin.chartData}>
-          <CommonAxis />
-          <Bar dataKey="candleRange" animationDuration={1000}>
-            {selectedCoin.chartData.map((entry, index) => (
-              <Cell 
-                key={`cell-${index}`} 
-                fill={entry.candleClose >= entry.candleOpen ? '#10B981' : '#EF4444'} 
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      );
-    }
-
-    // 2. Biểu đồ Đường (Line)
-    if (chartType === 'line') {
-      return (
-        <LineChart data={selectedCoin.chartData}>
-          <CommonAxis />
-          <Line type="monotone" dataKey="price" stroke="#2563EB" strokeWidth={3} dot={false} animationDuration={1000}/>
-        </LineChart>
-      );
-    }
-
-    // 3. Biểu đồ Vùng Núi (Mountain)
-    if (chartType === 'mountain') {
-      return (
-        <AreaChart data={selectedCoin.chartData}>
-          <defs>
-            <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          <CommonAxis />
-          <Area type="monotone" dataKey="price" stroke="#2563EB" strokeWidth={3} fillOpacity={1} fill="url(#colorMountain)" animationDuration={1000}/>
-        </AreaChart>
-      );
-    }
-
-    // 4. Biểu đồ Baseline (Mặc định)
-    return (
-      <AreaChart data={selectedCoin.chartData}>
-        <defs>
-          <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-            <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /> {/* Vùng Xanh */}
-            <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /> {/* Vùng Đỏ */}
-          </linearGradient>
-        </defs>
-        <CommonAxis />
-        {/* Đường kẻ ngang tham chiếu (Giá mở cửa) */}
-        <ReferenceLine y={selectedCoin.chartData[0]?.open} stroke="#64748B" strokeDasharray="3 3" />
-        <Area 
-          type="monotone" 
-          dataKey="price" 
-          stroke={selectedCoin.chartData[selectedCoin.chartData.length-1].price >= selectedCoin.chartData[0].open ? "#10B981" : "#EF4444"} 
-          strokeWidth={3} 
-          fill="url(#splitColor)" 
-          animationDuration={1000}
-        />
-      </AreaChart>
-    );
-  };
+  // --------------------------------------------------------
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${beVietnam.className} pb-10`}>
@@ -259,8 +197,6 @@ export default function Home() {
             {cryptos.slice(0, 5).map((coin) => {
               const isUp = coin.change_24h >= 0;
               const isSelected = selectedCoin?.symbol === coin.symbol;
-              
-              // Màu nền: Xanh ngọc / Hồng nhạt
               const bgClass = isUp ? 'bg-[#ECFDF5] border-[#D1FAE5]' : 'bg-[#FFF1F2] border-[#FFE4E6]';
               const textClass = isUp ? 'text-[#059669]' : 'text-[#E11D48]';
 
@@ -291,13 +227,13 @@ export default function Home() {
         </div>
       </div>
 
-      {/* --- CHART SECTION --- */}
+      {/* --- CHART SECTION (ĐÃ FIX BASELINE & TIME RANGE) --- */}
       {selectedCoin && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             
-            {/* Chart Header */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+            {/* Chart Header & Controls */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
               <div className="flex items-center gap-4">
                  <img src={selectedCoin.image_url || `https://assets.coingecko.com/coins/images/1/large/bitcoin.png`} className="w-12 h-12 rounded-full border border-slate-100 p-0.5" />
                  <div>
@@ -311,34 +247,107 @@ export default function Home() {
                  </div>
               </div>
               
-              {/* DROPDOWN CHỌN CHART (TIẾNG VIỆT) */}
-              <div className="relative group">
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 cursor-pointer hover:bg-slate-100 transition">
-                  <BarChart2 size={16} className="text-slate-500"/>
-                  <select 
-                    value={chartType}
-                    onChange={(e) => setChartType(e.target.value)}
-                    className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6"
+              {/* TIME RANGE SELECTOR (1D, 1W...) */}
+              <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
+                  <button 
+                    key={range}
+                    onClick={() => handleTimeChange(range)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${
+                      timeRange === range 
+                        ? 'bg-white text-blue-700 shadow-sm' 
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
                   >
-                    <option value="baseline">Biểu đồ Baseline</option>
-                    <option value="candle">Biểu đồ Nến (Candle)</option>
-                    <option value="mountain">Biểu đồ Vùng (Mountain)</option>
-                    <option value="line">Biểu đồ Đường (Line)</option>
-                  </select>
-                  <ChevronDown size={14} className="absolute right-3 text-slate-400 pointer-events-none"/>
-                </div>
+                    {range}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Chart Drawing Area */}
-            <div className="h-[450px] w-full">
+            {/* CHART DRAWING AREA (BASELINE FIXED) */}
+            <div className="h-[400px] w-full relative">
+               {/* Chú thích giá mở cửa */}
+               <div className="absolute top-2 left-2 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm">
+                 Giá tham chiếu (Open): ${selectedCoin.chartData[0]?.open.toLocaleString()}
+               </div>
+
               <ResponsiveContainer width="100%" height="100%">
-                {renderChart()}
+                <AreaChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset={0} stopColor="#10B981" stopOpacity={0.2} /> {/* Green Top */}
+                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0} />
+                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0} />
+                      <stop offset={1} stopColor="#EF4444" stopOpacity={0.2} /> {/* Red Bottom */}
+                    </linearGradient>
+                  </defs>
+
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="time" hide />
+                  <YAxis 
+                    domain={['dataMin', 'dataMax']} 
+                    orientation="right" 
+                    tick={{fontSize: 12, fill: '#64748B', fontFamily: 'monospace'}} 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(val) => `$${val.toLocaleString()}`}
+                  />
+                  <Tooltip 
+                    contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
+                    formatter={(value) => [`$${value.toLocaleString()}`, 'Giá']}
+                    labelStyle={{color: '#94A3B8'}}
+                  />
+
+                  {/* Dotted Reference Line */}
+                  <ReferenceLine 
+                    y={selectedCoin.chartData[0]?.open} 
+                    stroke="#64748B" 
+                    strokeDasharray="3 3" 
+                    strokeWidth={1}
+                    label="" 
+                  />
+
+                  <Area 
+                    type="monotone" 
+                    dataKey="price" 
+                    // Nếu giá hiện tại > giá mở cửa thì đường viền màu Xanh, ngược lại màu Đỏ
+                    stroke={selectedCoin.chartData[selectedCoin.chartData.length-1].price >= selectedCoin.chartData[0].open ? "#10B981" : "#EF4444"} 
+                    strokeWidth={2} 
+                    fill="url(#splitColor)" 
+                    animationDuration={800}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
       )}
+
+      {/* --- FAQ SECTION (MỚI THÊM) --- */}
+      <section className="max-w-7xl mx-auto px-4 mt-12 mb-8">
+        <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+          <HelpCircle size={24} className="text-blue-700"/> Các câu hỏi thường gặp (FAQ)
+        </h3>
+        <div className="grid gap-3">
+          {faqs.map((faq, idx) => (
+            <div key={idx} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <button 
+                onClick={() => setOpenFaqIndex(openFaqIndex === idx ? -1 : idx)}
+                className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-50 transition"
+              >
+                <span className="font-bold text-slate-800 text-sm md:text-base">{faq.question}</span>
+                {openFaqIndex === idx ? <ChevronUp size={20} className="text-blue-600"/> : <ChevronDown size={20} className="text-slate-400"/>}
+              </button>
+              {openFaqIndex === idx && (
+                <div className="p-4 pt-0 text-sm text-slate-600 leading-relaxed border-t border-slate-100 bg-slate-50/50">
+                  {faq.answer}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* --- DATA TABLE --- */}
       <main className="max-w-7xl mx-auto px-4 py-8">
@@ -394,7 +403,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* --- FOOTER: PHÁP LÝ (TIẾNG VIỆT THEO YÊU CẦU) --- */}
+      {/* FOOTER - DISCLAIMER ĐÃ VIỆT HÓA */}
       <footer className="bg-slate-900 text-slate-400 py-12 mt-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-6">
