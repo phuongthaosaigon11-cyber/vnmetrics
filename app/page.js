@@ -1,20 +1,33 @@
+'use client'; // 👈 Dòng này cực quan trọng: Chuyển sang chế độ chạy trên trình duyệt
+
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-// CẤU HÌNH QUAN TRỌNG: Bắt buộc phải có dòng này web mới chạy được trên Cloudflare
-export const runtime = 'edge'; 
+export default function Home() {
+  const [cryptos, setCryptos] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-// CẤU HÌNH CACHE: 0 để luôn lấy dữ liệu mới nhất
-export const revalidate = 0; 
+  // Hàm lấy dữ liệu chạy ngay khi mở web
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const { data, error } = await supabase
+          .from('crypto_prices')
+          .select('*')
+          .order('symbol');
+        
+        if (error) throw error;
+        if (data) setCryptos(data);
+      } catch (err) {
+        console.error("Lỗi:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
 
-export default async function Home() {
-  // Lấy dữ liệu từ bảng "crypto_prices"
-  const { data: cryptos, error } = await supabase
-    .from('crypto_prices')
-    .select('*')
-    .order('symbol');
-
-  if (error) console.error("Lỗi lấy data:", error);
-
+  // Hàm lấy logo
   const getLogo = (symbol) => {
     if (symbol === 'BTC') return 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png';
     if (symbol === 'ETH') return 'https://assets.coingecko.com/coins/images/279/large/ethereum.png';
@@ -29,15 +42,20 @@ export default async function Home() {
             🇻🇳 Cổng Dữ liệu Tài sản số VN
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Dữ liệu tham khảo theo Nghị quyết 05/2025/NQ-CP (Cập nhật từ CoinGecko)
+            Dữ liệu tham khảo theo Nghị quyết 05/2025/NQ-CP
           </p>
         </header>
 
-        {(!cryptos || cryptos.length === 0) ? (
+        {loading ? (
+          <div className="text-center py-20">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-300 border-t-blue-600"></div>
+            <p className="text-slate-500 mt-2">Đang cập nhật giá mới nhất...</p>
+          </div>
+        ) : (!cryptos || cryptos.length === 0) ? (
           <div className="text-center py-10 bg-white rounded-lg shadow-sm">
             <p className="text-slate-500">
-              Đang tải dữ liệu... <br/>
-              (Nếu chờ lâu, hãy kiểm tra lại bảng crypto_prices trong Supabase)
+              Chưa có dữ liệu trong kho. <br/>
+              (Hãy kiểm tra lại Bot cập nhật giá)
             </p>
           </div>
         ) : (
@@ -45,6 +63,7 @@ export default async function Home() {
             {cryptos.map((coin) => (
               <div key={coin.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 hover:shadow-md transition-shadow">
                 
+                {/* Cột trái: Thông tin Token */}
                 <div className="flex items-center gap-4 w-full md:w-auto">
                   <img src={getLogo(coin.symbol)} className="w-12 h-12 rounded-full border bg-white" alt={coin.symbol} />
                   <div>
@@ -60,6 +79,7 @@ export default async function Home() {
                   </div>
                 </div>
 
+                {/* Cột phải: Điểm Tuân thủ */}
                 <div className="w-full md:w-auto bg-slate-50 rounded-lg p-3 text-center md:text-right border border-slate-100 min-w-[150px]">
                   <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Chỉ số Tuân thủ</div>
                   <div className="flex items-center justify-center md:justify-end gap-2">
