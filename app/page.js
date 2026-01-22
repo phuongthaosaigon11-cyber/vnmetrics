@@ -4,14 +4,14 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Be_Vietnam_Pro, Roboto_Mono } from 'next/font/google';
 import { 
-  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
+  ComposedChart, Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
 } from 'recharts';
 import { 
-  Zap, ArrowUpRight, ArrowDownRight, ShieldCheck, 
-  HelpCircle, ChevronDown, ChevronUp, FileText
+  Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
+  HelpCircle, ChevronDown, ChevronUp, FileText, Settings, BarChart2
 } from 'lucide-react';
 
-// Cấu hình Font chữ
+// Cấu hình Font
 const beVietnam = Be_Vietnam_Pro({ 
   subsets: ['latin', 'vietnamese'], 
   weight: ['400', '500', '600', '700', '800'] 
@@ -23,60 +23,55 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
-  const [timeRange, setTimeRange] = useState('1D'); 
+  const [timeRange, setTimeRange] = useState('1D');
+  const [chartType, setChartType] = useState('baseline'); // Đã mang lại tính năng chọn Chart
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
 
-  // --- DỮ LIỆU FAQ CHUẨN PHÁP LÝ (Dựa trên NQ 05/2025 & Luật CN Công nghệ số) ---
+  // FAQ Dữ liệu (Dựa trên NQ 05/2025 & Luật Công nghiệp Công nghệ số)
   const faqs = [
     {
-      question: "Tài sản mã hóa (Crypto) có được pháp luật Việt Nam công nhận không?",
-      answer: "Theo Điều 3 Nghị quyết 05/2025/NQ-CP và Điều 46 Luật Công nghiệp Công nghệ số, 'Tài sản mã hóa' được xác định là một loại 'Tài sản số' và là tài sản theo quy định của Bộ luật Dân sự. Tuy nhiên, nó không phải là tiền tệ hay phương tiện thanh toán hợp pháp."
+      question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
+      answer: "Theo Điều 46 Luật Công nghiệp Công nghệ số và Nghị quyết 05/2025/NQ-CP, Tài sản mã hóa được công nhận là 'Tài sản số' và là tài sản theo Bộ luật Dân sự. Tuy nhiên, nó không phải là phương tiện thanh toán."
     },
     {
-      question: "Ai được phép tham gia mua bán trên thị trường thí điểm này?",
-      answer: "Theo Điều 6 và Điều 7 Nghị quyết 05/2025/NQ-CP: Chương trình thí điểm ưu tiên cho Nhà đầu tư nước ngoài. Nhà đầu tư trong nước đang sở hữu tài sản mã hóa được phép mở tài khoản để lưu ký và giao dịch thông qua các Tổ chức cung cấp dịch vụ được cấp phép, không được tự do giao dịch trên thị trường "
+      question: "Nhà đầu tư cá nhân trong nước có được tự do giao dịch không?",
+      answer: "Theo Điều 7 Nghị quyết 05/2025/NQ-CP, trong giai đoạn thí điểm, nhà đầu tư trong nước chỉ được mở tài khoản và giao dịch thông qua các Tổ chức cung cấp dịch vụ đã được Bộ Tài chính cấp phép, nhằm đảm bảo an toàn và tuân thủ quy định phòng chống rửa tiền."
     },
     {
-      question: "Giao dịch tài sản mã hóa có phải đóng thuế không?",
-      answer: "Có. Theo khoản 9 Điều 4 Nghị quyết 05/2025/NQ-CP, trong thời gian thí điểm, chính sách thuế đối với giao dịch tài sản mã hóa được áp dụng tương tự như quy định về thuế đối với chứng khoán."
-    },
-    {
-      question: "Quyền lợi của nhà đầu tư được bảo vệ như thế nào?",
-      answer: "Theo Điều 16 Nghị quyết 05/2025/NQ-CP, nhà đầu tư được quyền sở hữu hợp pháp tài sản trong tài khoản lưu ký, được bồi thường thiệt hại nếu tổ chức cung cấp dịch vụ để xảy ra sự cố bảo mật, và được giải quyết tranh chấp thông qua Tòa án hoặc Trọng tài thương mại."
-    },
-    {
-      question: "Thời gian thí điểm thị trường là bao lâu?",
-      answer: "Theo Điều 18 Nghị quyết này, thời gian thực hiện thí điểm là 05 năm kể từ ngày 09/09/2025. Sau thời gian này, Chính phủ sẽ tổng kết và đề xuất chính sách quản lý chính thức."
+      question: "Thuế đối với tài sản mã hóa được tính như thế nào?",
+      answer: "Trong thời gian thí điểm, chính sách thuế đối với giao dịch tài sản mã hóa được áp dụng tương tự như quy định về thuế đối với chứng khoán (theo khoản 9 Điều 4 Nghị quyết thí điểm)."
     }
   ];
 
-  // Hàm tạo dữ liệu Chart giả lập (Có Volume + Giá Open cố định)
+  // Tạo dữ liệu giả lập (OHLC + Volume)
   const generateChartData = (basePrice, range) => {
     const data = [];
     let price = basePrice;
-    let points = 24; 
-    if (range === '1W') points = 7;
+    let points = 48; // Nhiều điểm hơn cho mượt
+    if (range === '1W') points = 14;
     if (range === '1M') points = 30;
-    if (range === '1Y') points = 12;
-    if (range === 'ALL') points = 50;
-
-    // Giá mở cửa tham chiếu (Reference)
-    const openRef = basePrice * (1 + (Math.random() * 0.05 - 0.025));
+    
+    // Giá mở cửa tham chiếu (Cố định cho Baseline)
+    const openRef = basePrice; 
 
     for (let i = 0; i < points; i++) {
-      // Biến động giá
-      price = price * (1 + (Math.random() * 0.04 - 0.02));
-      // Volume ngẫu nhiên
-      const vol = Math.floor(Math.random() * 1000) + 500;
+      // Biến động giá sao cho có lúc xanh lúc đỏ so với openRef
+      price = price * (1 + (Math.random() * 0.06 - 0.03));
+      const vol = Math.floor(Math.random() * 5000) + 1000;
       
       data.push({ 
-        time: range === '1D' ? `${i}:00` : `T${i+1}`, 
+        time: `${i}:00`, 
         price: price,
         open: openRef, // Đường baseline
-        volume: vol
+        volume: vol,
+        // Dữ liệu cho nến (giả lập)
+        candleHigh: price * 1.01,
+        candleLow: price * 0.99,
+        candleOpen: price * (1 + (Math.random() * 0.02 - 0.01)),
+        candleClose: price
       });
     }
-    // Chốt điểm cuối = giá hiện tại
+    // Điểm cuối cùng khớp giá hiện tại
     data[data.length - 1].price = basePrice;
     return data;
   };
@@ -136,7 +131,7 @@ export default function Home() {
 
   const formatVND = (num) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(num);
 
-  // --- THUẬT TOÁN MÀU BASELINE (CoinMarketCap) ---
+  // --- TÍNH TOÁN MÀU BASELINE (Quan trọng) ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -144,15 +139,56 @@ export default function Home() {
     const openRef = data[0].open;
 
     if (dataMax <= dataMin) return 0;
-    if (openRef >= dataMax) return 0;
-    if (openRef <= dataMin) return 1;
+    if (openRef >= dataMax) return 0; // Toàn bộ đỏ
+    if (openRef <= dataMin) return 1; // Toàn bộ xanh
 
     return (dataMax - openRef) / (dataMax - dataMin);
   };
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
 
+  // --- RENDER BIỂU ĐỒ THEO LOẠI ---
+  const renderChartBody = () => {
+    if (!selectedCoin) return null;
+
+    // 1. CHART NẾN (CANDLE) - Dùng ErrorBar hoặc Bar range (đơn giản hóa bằng Bar range)
+    if (chartType === 'candle') {
+      return (
+        <Bar dataKey="price" fill="#8884d8" barSize={10}>
+           {selectedCoin.chartData.map((entry, index) => (
+             <Cell key={`cell-${index}`} fill={entry.candleClose >= entry.candleOpen ? '#16A34A' : '#DC2626'} />
+           ))}
+        </Bar>
+      );
+    }
+
+    // 2. MOUNTAIN (Xanh dương truyền thống)
+    if (chartType === 'mountain') {
+      return (
+        <Area 
+          type="monotone" 
+          dataKey="price" 
+          stroke="#2563EB" 
+          fill="url(#colorMountain)" 
+          strokeWidth={2}
+        />
+      );
+    }
+
+    // 3. BASELINE (Mặc định - Màu Xanh/Đỏ theo giá mở cửa)
+    return (
+      <Area 
+        type="monotone" 
+        dataKey="price" 
+        stroke="url(#splitStroke)" // Đường viền đổi màu
+        fill="url(#splitFill)"     // Nền đổi màu
+        strokeWidth={2} 
+        animationDuration={800}
+      />
+    );
+  };
+
   return (
-    <div className={`min-h-screen bg-[#F4F6F8] text-slate-900 ${beVietnam.className} pb-10`}>
+    <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${beVietnam.className} pb-10`}>
       
       {/* BANNER CONSENT */}
       {showConsent && (
@@ -160,7 +196,7 @@ export default function Home() {
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="text-sm text-slate-600">
               <span className="font-bold text-slate-900 block mb-1 text-base">Chính sách Dữ liệu & Quyền riêng tư</span>
-              Trang web này là một phần của hệ sinh thái <strong>VNMetrics</strong>. Bằng việc tiếp tục sử dụng, bạn đồng ý với Điều khoản dịch vụ và Chính sách bảo mật của chúng tôi.
+              Bằng việc tiếp tục sử dụng, bạn đồng ý với Điều khoản dịch vụ và Chính sách bảo mật của chúng tôi.
             </div>
             <div className="flex gap-3 whitespace-nowrap">
               <button onClick={handleAccept} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded transition">Tôi Đồng ý</button>
@@ -185,7 +221,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* --- SECTION 1: TICKER CÓ MÀU (GIỮ NGUYÊN) --- */}
+      {/* --- TICKER MÀU NỀN (GIỮ NGUYÊN) --- */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-4">
@@ -230,11 +266,12 @@ export default function Home() {
         </div>
       </div>
 
-      {/* --- SECTION 2: BIỂU ĐỒ BASELINE "DÍNH" + VOLUME --- */}
+      {/* --- CHART SECTION (ĐÃ SỬA VOLUME & BASELINE) --- */}
       {selectedCoin && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             
+            {/* 1. Header: Price + Time + Chart Type */}
             <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
               <div className="flex items-center gap-4">
                  <img src={selectedCoin.image_url || `https://assets.coingecko.com/coins/images/1/large/bitcoin.png`} className="w-12 h-12 rounded-full border border-slate-100 p-0.5" />
@@ -249,64 +286,86 @@ export default function Home() {
                  </div>
               </div>
               
-              {/* NÚT THỜI GIAN 1D, 1W... */}
-              <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
-                  <button 
-                    key={range}
-                    onClick={() => handleTimeChange(range)}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition ${
-                      timeRange === range 
-                        ? 'bg-white text-blue-700 shadow-sm' 
-                        : 'text-slate-500 hover:text-slate-900'
-                    }`}
-                  >
-                    {range}
-                  </button>
-                ))}
+              <div className="flex flex-col items-end gap-3">
+                {/* Chart Type Selector (ĐÃ KHÔI PHỤC) */}
+                <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                   <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
+                   <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
+                   <button onClick={() => setChartType('candle')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='candle'?'bg-white text-blue-700 shadow':''}`}>Candle</button>
+                </div>
+
+                {/* Time Range */}
+                <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                  {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
+                    <button 
+                      key={range}
+                      onClick={() => handleTimeChange(range)}
+                      className={`px-4 py-1.5 text-xs font-bold rounded-md transition ${timeRange === range ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+                    >
+                      {range}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            {/* CHART AREA */}
+            {/* 2. CHART AREA */}
             <div className="h-[450px] w-full relative">
-               <div className="absolute top-2 left-2 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm">
-                 Giá mở cửa: ${selectedCoin.chartData[0]?.open.toLocaleString()}
+               <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                 Open: ${selectedCoin.chartData[0]?.open.toLocaleString()}
                </div>
 
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <ComposedChart data={selectedCoin.chartData}>
                   <defs>
-                    {/* Gradient Baseline: Dùng offset để chia màu Xanh/Đỏ tại đúng vạch tham chiếu */}
-                    <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={0} stopColor="#16A34A" stopOpacity={0.3} />
+                    {/* Gradient cho Nền (Fill) - Baseline */}
+                    <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset={0} stopColor="#16A34A" stopOpacity={0.2} />
                       <stop offset={gradientOffset} stopColor="#16A34A" stopOpacity={0} />
                       <stop offset={gradientOffset} stopColor="#DC2626" stopOpacity={0} />
-                      <stop offset={1} stopColor="#DC2626" stopOpacity={0.3} />
+                      <stop offset={1} stopColor="#DC2626" stopOpacity={0.2} />
+                    </linearGradient>
+                    
+                    {/* Gradient cho Đường (Stroke) - Baseline */}
+                    <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset={0} stopColor="#16A34A" stopOpacity={1} />
+                      <stop offset={gradientOffset} stopColor="#16A34A" stopOpacity={1} />
+                      <stop offset={gradientOffset} stopColor="#DC2626" stopOpacity={1} />
+                      <stop offset={1} stopColor="#DC2626" stopOpacity={1} />
+                    </linearGradient>
+
+                    <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
 
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  
                   <XAxis 
                     dataKey="time" 
                     tick={{fontSize: 10, fill: '#94A3B8'}} 
-                    axisLine={false} 
-                    tickLine={false} 
-                    minTickGap={30}
+                    axisLine={false} tickLine={false} minTickGap={30} 
                   />
                   
-                  {/* Trục giá bên phải */}
+                  {/* Trục GIÁ (Phải) */}
                   <YAxis 
-                    yAxisId="right"
+                    yAxisId="price"
                     orientation="right" 
                     domain={['auto', 'auto']} 
                     tick={{fontSize: 11, fill: '#64748B', fontFamily: 'monospace'}} 
-                    axisLine={false} 
-                    tickLine={false} 
+                    axisLine={false} tickLine={false} 
                     tickFormatter={(val) => `$${val.toLocaleString()}`}
                   />
 
-                  {/* Trục volume bên trái (ẩn số) */}
-                  <YAxis yAxisId="left" orientation="left" hide domain={[0, 'dataMax + 1000']} />
+                  {/* Trục VOLUME (Trái - Ẩn số, Domain lớn để đẩy cột xuống đáy) */}
+                  <YAxis 
+                    yAxisId="volume" 
+                    orientation="left" 
+                    domain={[0, 'dataMax * 4']} // *4 để volume chỉ chiếm 1/4 chiều cao dưới đáy
+                    hide 
+                  />
 
                   <Tooltip 
                     contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
@@ -317,30 +376,33 @@ export default function Home() {
                     labelStyle={{color: '#94A3B8'}}
                   />
 
-                  {/* Đường tham chiếu giá mở cửa (Dotted Line) */}
-                  <ReferenceLine 
-                    yAxisId="right"
-                    y={selectedCoin.chartData[0]?.open} 
-                    stroke="#64748B" 
-                    strokeDasharray="3 3" 
-                    strokeWidth={1}
-                  />
+                  {/* Đường tham chiếu giá mở cửa */}
+                  {chartType === 'baseline' && (
+                    <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.open} stroke="#94A3B8" strokeDasharray="3 3" />
+                  )}
 
-                  {/* Biểu đồ Volume ở dưới */}
-                  <Bar yAxisId="left" dataKey="volume" fill="#CBD5E1" barSize={20} radius={[2, 2, 0, 0]} />
+                  {/* Volume Bars (Luôn hiện ở dưới đáy) */}
+                  <Bar yAxisId="volume" dataKey="volume" fill="#CBD5E1" barSize={15} radius={[2, 2, 0, 0]} />
 
-                  {/* Biểu đồ Giá (Baseline Area) */}
-                  {/* baseValue={open} giúp vùng fill "dính" vào đường tham chiếu thay vì đáy biểu đồ */}
-                  <Area 
-                    yAxisId="right"
-                    type="monotone" 
-                    dataKey="price" 
-                    baseValue={selectedCoin.chartData[0]?.open} 
-                    stroke={selectedCoin.chartData[selectedCoin.chartData.length-1].price >= selectedCoin.chartData[0].open ? "#16A34A" : "#DC2626"} 
-                    strokeWidth={2} 
-                    fill="url(#splitColor)" 
-                    animationDuration={800}
-                  />
+                  {/* Vẽ Chart Chính (Dùng yAxisId="price") */}
+                  {chartType === 'baseline' && (
+                    <Area 
+                      yAxisId="price"
+                      type="monotone" 
+                      dataKey="price" 
+                      stroke="url(#splitStroke)" // Đường viền đổi màu xanh/đỏ
+                      fill="url(#splitFill)"     // Nền đổi màu xanh/đỏ
+                      strokeWidth={2} 
+                      animationDuration={800}
+                    />
+                  )}
+                  {chartType === 'mountain' && (
+                    <Area yAxisId="price" type="monotone" dataKey="price" stroke="#2563EB" fill="url(#colorMountain)" strokeWidth={2} />
+                  )}
+                  {chartType === 'candle' && (
+                    <Line yAxisId="price" type="monotone" dataKey="price" stroke="#8884d8" dot={false} strokeWidth={2} />
+                  )}
+
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -348,82 +410,28 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- DATA TABLE --- */}
-      <main className="max-w-7xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-            <h3 className="font-bold text-slate-800 text-lg">Bảng giá Niêm yết</h3>
-            <button className="text-xs font-bold text-blue-700 bg-blue-50 px-3 py-1.5 rounded border border-blue-100">Xem tất cả</button>
-          </div>
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-500 uppercase bg-slate-50/50 font-bold border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4">Tài sản</th>
-                <th className="px-6 py-4 text-right">Giá (VND)</th>
-                <th className="px-6 py-4 text-right">Giá (USD)</th>
-                <th className="px-6 py-4 text-right">Biến động</th>
-                <th className="px-6 py-4 text-center">Tuân thủ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {cryptos.map((coin, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => setSelectedCoin(coin)}>
-                  <td className="px-6 py-5 font-medium">
-                    <div className="flex items-center gap-4">
-                      <span className="text-slate-300 text-xs font-bold w-4">{idx + 1}</span>
-                      <img src={coin.image_url || `https://assets.coingecko.com/coins/images/1/large/bitcoin.png`} className="w-10 h-10 rounded-full border border-slate-100 bg-white" />
-                      <div>
-                        <div className="font-bold text-slate-900 text-base">{coin.name}</div>
-                        <div className="text-xs text-slate-500 font-semibold">{coin.symbol}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className={`px-6 py-5 text-right font-bold text-slate-800 text-base ${robotoMono.className}`}>
-                    {formatVND(coin.price_vnd)}
-                  </td>
-                  <td className={`px-6 py-5 text-right text-slate-500 font-medium ${robotoMono.className}`}>
-                    ${coin.price?.toLocaleString()}
-                  </td>
-                  <td className={`px-6 py-5 text-right font-bold ${coin.change_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {coin.change_24h >= 0 ? '+' : ''}{coin.change_24h}%
-                  </td>
-                  <td className="px-6 py-5 text-center">
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-extrabold border uppercase tracking-wide ${
-                      coin.compliance_score >= 80 ? 'bg-green-50 text-green-700 border-green-200' : 
-                      'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
-                      {coin.compliance_score >= 80 ? 'An toàn' : 'Cảnh báo'} ({coin.compliance_score})
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </main>
-
-      {/* --- FAQ SECTION (MỚI - CUỐI TRANG) --- */}
-      <section className="max-w-4xl mx-auto px-4 mb-16">
-        <div className="text-center mb-10">
+      {/* --- FAQ SECTION (CUỐI TRANG) --- */}
+      <section className="max-w-4xl mx-auto px-4 mt-16 mb-16">
+        <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
             <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
           </h2>
           <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP và Luật Công nghiệp Công nghệ số</p>
         </div>
         
-        <div className="space-y-4">
+        <div className="space-y-3">
           {faqs.map((faq, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition hover:shadow-md">
+            <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <button 
                 onClick={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)}
-                className="w-full flex justify-between items-center p-5 text-left bg-white"
+                className="w-full flex justify-between items-center p-5 text-left bg-white hover:bg-slate-50 transition"
               >
                 <span className="font-bold text-slate-800 pr-4">{faq.question}</span>
-                {openFaqIndex === idx ? <ChevronUp size={20} className="text-blue-600 flex-shrink-0"/> : <ChevronDown size={20} className="text-slate-400 flex-shrink-0"/>}
+                {openFaqIndex === idx ? <ChevronUp size={20} className="text-blue-600"/> : <ChevronDown size={20} className="text-slate-400"/>}
               </button>
               {openFaqIndex === idx && (
                 <div className="p-5 pt-0 text-sm text-slate-600 leading-relaxed bg-white border-t border-slate-50">
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 text-justify">
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-justify">
                     {faq.answer}
                   </div>
                 </div>
@@ -434,10 +442,10 @@ export default function Home() {
       </section>
 
       {/* FOOTER - DISCLAIMER (TIẾNG VIỆT) */}
-      <footer className="bg-slate-900 text-slate-400 py-12 mt-12 border-t border-slate-800">
+      <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-6">
-             <ShieldCheck className="text-yellow-500" size={24} />
+             <ShieldAlert className="text-yellow-500" size={24} />
              <h3 className="font-bold text-white uppercase tracking-wider">Miễn trừ trách nhiệm quan trọng</h3>
           </div>
           
