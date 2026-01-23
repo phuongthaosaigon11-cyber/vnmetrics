@@ -11,7 +11,6 @@ import {
   HelpCircle, ChevronDown, ChevronUp, AlertTriangle, Droplets, Database, Info
 } from 'lucide-react';
 
-// --- CẤU HÌNH ---
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
@@ -48,7 +47,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCH CHART (CoinGecko) ---
+  // --- FETCH CHART (CoinGecko Direct - Có Volume) ---
   const fetchChart = async (coinId, range) => {
     try {
         let days = '1';
@@ -66,6 +65,7 @@ export default function Home() {
                 time: range === '1D' ? new Date(p[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(p[0]).toLocaleDateString([], {day: '2-digit', month:'2-digit'}),
                 fullTime: new Date(p[0]).toLocaleString(),
                 price: p[1],
+                // Lấy Volume từ mảng total_volumes của CoinGecko
                 volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
                 baseline: baseline
             }));
@@ -81,13 +81,13 @@ export default function Home() {
   const fetchAllData = async () => {
     setLoading(true);
 
+    // 1. Market (CoinGecko)
     try {
       const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
       const cgData = await cgRes.json();
       
       if (Array.isArray(cgData)) {
           const firstChart = await fetchChart(cgData[0].id, timeRange);
-          
           const processed = cgData.map((coin, idx) => ({
             ...coin, 
             symbol: coin.symbol.toUpperCase(),
@@ -98,6 +98,7 @@ export default function Home() {
       }
     } catch (e) { console.error("Market Error", e); }
 
+    // 2. ETF (CoinGlass qua Proxy)
     try {
        const etfRes = await fetch('/api/proxy?type=coinglass');
        if (etfRes.ok) {
@@ -109,12 +110,18 @@ export default function Home() {
        }
     } catch (e) { console.error("ETF Error", e); }
 
+    // 3. DEX (DefiLlama qua Proxy)
     try {
-       const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
+       // Gọi qua Proxy để tránh lỗi CORS
+       const dexRes = await fetch('/api/proxy?type=defillama-dex'); 
        const dexData = await dexRes.json();
-       if (dexData.protocols) setDexs(dexData.protocols.slice(0, 15));
-    } catch (e) {}
+       if (dexData.protocols) {
+           // Lọc và sắp xếp top 10 DEX lớn nhất
+           setDexs(dexData.protocols.sort((a,b) => b.total24h - a.total24h).slice(0, 15));
+       }
+    } catch (e) { console.error("DEX Error", e); }
 
+    // 4. TVL (DefiLlama Direct - API này thường public tốt)
     try {
       const tvlRes = await fetch('https://api.llama.fi/v2/chains');
       const tvlData = await tvlRes.json();
@@ -149,22 +156,18 @@ export default function Home() {
     }
   };
 
-  const handleImgError = (symbol) => {
-    setImgError(prev => ({ ...prev, [symbol]: true }));
-  };
+  const handleImgError = (symbol) => setImgError(prev => ({ ...prev, [symbol]: true }));
 
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
     const dataMin = Math.min(...data.map((i) => i.price));
-    const baseline = data[0].baseline;
     if (dataMax <= dataMin) return 0;
-    if (baseline >= dataMax) return 0;
-    if (baseline <= dataMin) return 1;
-    return (dataMax - baseline) / (dataMax - dataMin);
+    return (dataMax - data[0].baseline) / (dataMax - dataMin);
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
+  // Tính Max Volume để scale biểu đồ cột cho đẹp (không bị che hết đường giá)
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
   const faqs = [
@@ -255,10 +258,11 @@ export default function Home() {
 
           {selectedCoin && (
              <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
                   <div className="flex flex-col md:flex-row justify-between mb-6 gap-4">
                     <div className="flex items-center gap-4">
-                       {imgError[selectedCoin.symbol] ? <div className="w-12 h-12 rounded-full border bg-slate-100 flex items-center justify-center"><Bitcoin className="text-orange-500"/></div> : <img src={selectedCoin.image} className="w-12 h-12 rounded-full border p-0.5 bg-white" onError={() => handleImgError(selectedCoin.symbol)}/>}
+                       {imgError[selectedCoin.symbol] ? <div className="w-12 h-12 rounded-full border bg-slate-100 flex items-center justify-center"><Globe size={24} className="text-slate-400"/></div> : <img src={selectedCoin.image} className="w-12 h-12 rounded-full border p-0.5 bg-white" onError={() => handleImgError(selectedCoin.symbol)}/>}
                        <div>
                          <h2 className="text-3xl font-black text-slate-900">{selectedCoin.name}</h2>
                          <div className="flex items-center gap-3 mt-1">
@@ -293,8 +297,8 @@ export default function Home() {
                             <XAxis dataKey="time" tick={{fontSize:10}} axisLine={false} tickLine={false} minTickGap={30}/>
                             <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize:11, fontFamily:'monospace'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} />
                             
-                            {/* CỘT VOLUME KHÔI PHỤC */}
-                            <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 4]} hide />
+                            {/* CỘT VOLUME (HIỆN DƯỚI CÙNG CHART) */}
+                            <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 6]} hide />
                             <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
 
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8' }} />
@@ -390,6 +394,7 @@ export default function Home() {
         </>
       )}
 
+      {/* ETF TAB */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
@@ -418,6 +423,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* DEX TAB */}
       {activeTab === 'dex' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
