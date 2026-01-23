@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
   ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, ServerCrash, RefreshCw, Info, Database, Droplets
+  BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Database, Droplets, Info, RefreshCw
 } from 'lucide-react';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
+
+// Hàm ngủ (Delay) để tránh spam API
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
@@ -24,17 +27,17 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
-  
-  // Trạng thái loading riêng biệt cho từng phần
+  const [showConsent, setShowConsent] = useState(false);
+  const [chartType, setChartType] = useState('baseline');
+  const [openFaqIndex, setOpenFaqIndex] = useState(null);
+  const [imgError, setImgError] = useState({});
+
+  // Trạng thái lỗi chi tiết
   const [status, setStatus] = useState({
     market: 'loading',
-    chart: 'loading',
     etf: 'loading',
     dex: 'loading'
   });
-
-  const [showConsent, setShowConsent] = useState(false);
-  const [chartType, setChartType] = useState('baseline');
 
   // --- FORMATTERS ---
   const formatPrice = (price) => {
@@ -53,7 +56,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- 1. FETCH CHART (CoinGecko) ---
+  // --- 1. FETCH CHART (COINGECKO DIRECT) ---
   const fetchChart = async (coinId, range) => {
     try {
       let days = '1';
@@ -63,12 +66,13 @@ export default function Home() {
       if (range === 'ALL') days = 'max';
 
       const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
+      if (!res.ok) return [];
       const data = await res.json();
       
       if (data.prices) {
         const baseline = data.prices[0][1];
         return data.prices.map((p, i) => ({
-          time: new Date(p[0]).toLocaleDateString(),
+          time: range === '1D' ? new Date(p[0]).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : new Date(p[0]).toLocaleDateString(),
           fullTime: new Date(p[0]).toLocaleString(),
           price: p[1],
           volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
@@ -76,65 +80,73 @@ export default function Home() {
         }));
       }
       return [];
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
+    } catch (e) { return []; }
   };
 
-  // --- 2. FETCH MARKET DATA ---
-  const fetchMarket = async () => {
+  // --- 2. FETCH MARKET (COINGECKO DIRECT + RETRY) ---
+  const fetchMarket = useCallback(async () => {
+    setStatus(prev => ({...prev, market: 'loading'}));
     try {
-      setStatus(prev => ({...prev, market: 'loading'}));
+      // Gọi CoinGecko trực tiếp
       const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
-      if (!res.ok) throw new Error("Rate Limit");
+      
+      if (res.status === 429) {
+        throw new Error("Rate Limit (429)");
+      }
+      
       const data = await res.json();
       
-      // Load chart cho coin đầu tiên
+      // Load chart cho coin đầu (nếu chưa có)
       const chart = await fetchChart(data[0].id, '1D');
       
       const processed = data.map((c, i) => ({
-        ...c, symbol: c.symbol.toUpperCase(),
+        ...c, 
+        symbol: c.symbol.toUpperCase(),
         chartData: i === 0 ? chart : []
       }));
       
       setCryptos(processed);
       if (!selectedCoin) setSelectedCoin(processed[0]);
       setStatus(prev => ({...prev, market: 'success'}));
+
     } catch (e) {
+      console.error(e);
       setStatus(prev => ({...prev, market: 'error'}));
     }
-  };
+  }, [selectedCoin]);
 
-  // --- 3. FETCH ETF (Via Proxy) ---
+  // --- 3. FETCH ETF (DÙNG CORSPROXY.IO) ---
   const fetchETF = async () => {
+    setStatus(prev => ({...prev, etf: 'loading'}));
     try {
-      setStatus(prev => ({...prev, etf: 'loading'}));
-      const res = await fetch('/api/proxy?type=coinglass');
-      const json = await res.json();
+      // Kỹ thuật Bypass: Dùng corsproxy.io để lách CORS của CoinGlass
+      const proxyUrl = "https://corsproxy.io/?https://capi.coinglass.com/api/etf/flow";
+      const res = await fetch(proxyUrl);
       
+      if (!res.ok) throw new Error("Proxy Error");
+      
+      const json = await res.json();
       if (json.data) {
         const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
         setEtfs(json.data.filter(i => target.includes(i.ticker)));
         setStatus(prev => ({...prev, etf: 'success'}));
-      } else {
-        throw new Error("Empty Data");
       }
     } catch (e) {
+      console.error(e);
       setStatus(prev => ({...prev, etf: 'error'}));
     }
   };
 
-  // --- 4. FETCH DEX (Via Proxy for stability) ---
+  // --- 4. FETCH DEX (DEFILLAMA DIRECT) ---
   const fetchDEX = async () => {
+    setStatus(prev => ({...prev, dex: 'loading'}));
     try {
-      setStatus(prev => ({...prev, dex: 'loading'}));
-      const res = await fetch('/api/proxy?type=defillama-dex');
+      // DefiLlama cho phép gọi trực tiếp (CORS enabled)
+      const res = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
       const json = await res.json();
       
       if (json.protocols) {
-        const topDex = json.protocols.sort((a,b) => (b.total24h||0) - (a.total24h||0)).slice(0, 15);
-        setDexs(topDex);
+        setDexs(json.protocols.sort((a,b) => (b.total24h||0) - (a.total24h||0)).slice(0, 15));
         setStatus(prev => ({...prev, dex: 'success'}));
       }
     } catch (e) {
@@ -142,7 +154,7 @@ export default function Home() {
     }
   };
 
-  // --- 5. GLOBAL DATA ---
+  // --- INITIAL LOAD ---
   useEffect(() => {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
@@ -151,21 +163,24 @@ export default function Home() {
     fetchETF();
     fetchDEX();
 
-    // TVL
+    // TVL Direct call
     fetch('https://api.llama.fi/v2/chains')
       .then(r => r.json())
       .then(d => setGlobalStats({ tvl: d.reduce((a, b) => a + (b.tvl || 0), 0) }))
-      .catch(e => console.log(e));
+      .catch(e => {});
   }, []);
 
-  // --- INTERACTION HANDLERS ---
+  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
+    // Nếu chưa có chart thì tải
     if (!coin.chartData || coin.chartData.length === 0) {
       const chart = await fetchChart(coin.id, timeRange);
       const updatedCoin = { ...coin, chartData: chart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
-    } else { setSelectedCoin(coin); }
+    } else {
+      setSelectedCoin(coin);
+    }
   };
 
   const handleTimeChange = async (range) => {
@@ -178,7 +193,8 @@ export default function Home() {
     }
   };
 
-  // --- RENDER HELPERS ---
+  const handleImgError = (symbol) => setImgError(prev => ({ ...prev, [symbol]: true }));
+
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const max = Math.max(...data.map(i => i.price));
@@ -186,6 +202,15 @@ export default function Home() {
     if (max <= min) return 0;
     return (max - data[0].baseline) / (max - min);
   };
+
+  const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
+  const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
+
+  const faqs = [
+    { question: "Tại sao đôi khi dữ liệu không hiển thị?", answer: "Do chúng tôi sử dụng API miễn phí từ CoinGecko và CoinGlass, đôi khi hệ thống bị giới hạn lượt truy cập (Rate Limit). Vui lòng đợi 30s và tải lại trang." },
+    { question: "Dữ liệu được cập nhật bao lâu một lần?", answer: "Giá cả được cập nhật mỗi phút. Dữ liệu ETF và DEX được cập nhật hàng ngày vào lúc đóng phiên Mỹ (sáng giờ Việt Nam)." },
+    { question: "VNMetrics có thu phí không?", answer: "Không. VNMetrics là dự án cộng đồng hoàn toàn miễn phí." }
+  ];
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
@@ -211,7 +236,7 @@ export default function Home() {
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
       {showConsent && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6 flex justify-between items-center animate-in slide-in-from-bottom">
-          <div className="text-sm text-slate-600"><ShieldAlert size={18} className="inline mr-2 text-blue-600"/><strong>Thông báo:</strong> Dữ liệu trên VNMetrics chỉ mang tính tham khảo.</div>
+          <div className="text-sm text-slate-600"><ShieldAlert size={18} className="inline mr-2 text-blue-600"/><strong>Cảnh báo:</strong> VNMetrics tuân thủ Nghị quyết 05/2025/NQ-CP.</div>
           <button onClick={() => {localStorage.setItem('vnmetrics_consent', 'true'); setShowConsent(false)}} className="bg-slate-900 text-white font-bold py-2 px-6 rounded hover:bg-slate-800">Đồng ý</button>
         </div>
       )}
@@ -222,12 +247,12 @@ export default function Home() {
             <span className="flex items-center gap-1.5"><Globe size={12} className="text-blue-500"/> Global TVL: <span className="text-white font-bold">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1.5 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>VNMetrics System</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2"><span>Status: Client-Side Fetching</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
 
       {/* HEADER */}
       <nav className="bg-white border-b sticky top-0 z-50 shadow-sm px-4 h-16 flex justify-between items-center backdrop-blur-md bg-white/95">
-         <div className="flex items-center gap-2 font-extrabold text-xl text-slate-900"><Zap size={24} className="text-blue-600"/> VNMetrics<span className="text-slate-300 font-normal">.io</span></div>
+         <div className="flex items-center gap-2 font-extrabold text-xl text-slate-900"><Zap size={24} className="text-blue-600"/> VNMetrics</div>
          <div className="hidden md:flex bg-slate-100 p-1 rounded-lg">
             {['market', 'etf', 'dex'].map(t => (
                <button key={t} onClick={() => setActiveTab(t)} className={`px-5 py-1.5 text-sm font-bold rounded-md capitalize transition-all ${activeTab===t ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-900'}`}>{t === 'etf' ? 'ETF Tracker' : t === 'dex' ? 'DEX Volume' : 'Thị trường'}</button>
@@ -239,13 +264,21 @@ export default function Home() {
          </div>
       </nav>
 
-      {/* --- TAB 1: MARKET --- */}
+      {/* MARKET TAB */}
       {activeTab === 'market' && (
         <>
           <div className="bg-white border-b py-8 px-4 bg-gradient-to-b from-white to-slate-50">
-             {status.market === 'error' ? <div className="text-center text-red-500 py-4">Không thể tải dữ liệu thị trường (CoinGecko Rate Limit).</div> : 
+             {status.market === 'error' ? 
+               <div className="flex flex-col items-center justify-center py-8 text-red-500 gap-2">
+                  <Activity size={32}/>
+                  <span className="font-bold">CoinGecko Rate Limit (429)</span>
+                  <p className="text-xs text-slate-500">Bạn đang tải lại quá nhanh. Vui lòng đợi 1 phút.</p>
+                  <button onClick={fetchMarket} className="mt-2 bg-slate-100 px-4 py-2 rounded text-xs font-bold hover:bg-slate-200">Thử lại ngay</button>
+               </div> 
+             : 
              <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
-                {cryptos.slice(0, 5).map(c => {
+                {cryptos.length === 0 ? [1,2,3,4,5].map(i => <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse"/>) :
+                cryptos.slice(0, 5).map(c => {
                    const isUp = c.price_change_percentage_24h >= 0;
                    return (
                      <div key={c.id} onClick={() => handleSelectCoin(c)} 
@@ -268,16 +301,17 @@ export default function Home() {
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[550px]">
                   <div className="flex justify-between mb-6">
                     <div className="flex items-center gap-4">
-                       <img src={selectedCoin.image} className="w-14 h-14 rounded-full border p-1"/>
+                       {imgError[selectedCoin.symbol] ? <div className="w-14 h-14 rounded-full border bg-slate-100 flex items-center justify-center text-xs font-bold">{selectedCoin.symbol}</div> : 
+                       <img src={selectedCoin.image} className="w-14 h-14 rounded-full border p-1" onError={() => handleImgError(selectedCoin.symbol)}/>}
                        <div>
                          <h2 className="text-3xl font-black text-slate-900">{selectedCoin.name}</h2>
                          <div className="flex items-center gap-3 mt-1"><span className={`text-2xl font-bold ${jetbrainsMono.className} text-slate-900`}>{formatPrice(selectedCoin.current_price)}</span></div>
                        </div>
                     </div>
-                    <div className="flex gap-2 items-end">
+                    <div className="flex gap-2 items-end flex-col sm:flex-row">
                         <div className="flex bg-slate-100 rounded-lg p-1 border">
-                          <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Standard</button>
-                          <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Mountain</button>
+                          <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Line</button>
+                          <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Area</button>
                         </div>
                         <div className="flex bg-slate-100 rounded-lg p-1 border">
                            {['1D','1W','1M','1Y','ALL'].map((r) => <button key={r} onClick={() => handleTimeChange(r)} className={`px-3 py-1.5 text-xs font-bold rounded transition ${timeRange===r?'bg-white shadow text-blue-600':'text-slate-500'}`}>{r}</button>)}
@@ -287,19 +321,19 @@ export default function Home() {
 
                   <div className="flex-grow w-full relative min-h-[400px]">
                      {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-slate-400"><Activity className="mb-2 animate-bounce"/> Đang tải dữ liệu...</div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-slate-400"><Activity className="mb-2 animate-bounce"/> Đang tải biểu đồ...</div>
                      ) : (
                         <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart data={selectedCoin.chartData}>
                             <defs>
-                              <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1"><stop offset={getGradientOffset(selectedCoin.chartData)} stopColor="#10B981" stopOpacity={0.2} /><stop offset={getGradientOffset(selectedCoin.chartData)} stopColor="#EF4444" stopOpacity={0.2} /></linearGradient>
-                              <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1"><stop offset={getGradientOffset(selectedCoin.chartData)} stopColor="#10B981" stopOpacity={1} /><stop offset={getGradientOffset(selectedCoin.chartData)} stopColor="#EF4444" stopOpacity={1} /></linearGradient>
+                              <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /></linearGradient>
+                              <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} /></linearGradient>
                               <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                             <XAxis dataKey="time" tick={{fontSize:10, fill:'#94A3B8'}} axisLine={false} tickLine={false} minTickGap={40}/>
                             <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize:11, fontFamily:'monospace', fill:'#64748B'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} axisLine={false} tickLine={false}/>
-                            <YAxis yAxisId="volume" orientation="left" domain={[0, Math.max(...selectedCoin.chartData.map(d=>d.volume))*5]} hide />
+                            <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 5]} hide />
                             <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8', strokeDasharray: '4 4' }} />
                             {chartType === 'baseline' ? (
@@ -378,13 +412,13 @@ export default function Home() {
         </>
       )}
 
-      {/* --- TAB 2: ETF --- */}
+      {/* ETF TAB */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (CoinGlass)</h3>
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF Flows (Via Proxy)</h3>
               {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tải dữ liệu...</div>}
-              {status.etf === 'error' && <div className="text-center py-10 text-red-500">Lỗi kết nối. Có thể Proxy bị chặn.</div>}
+              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Lỗi kết nối Server Proxy. Vui lòng kiểm tra lại CORS.</p></div>}
               {status.etf === 'success' && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
@@ -409,11 +443,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- TAB 3: DEX --- */}
+      {/* DEX TAB */}
       {activeTab === 'dex' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama)</h3>
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama Direct)</h3>
               {status.dex === 'loading' && <div className="text-center py-10 text-slate-400">Đang tải dữ liệu...</div>}
               {status.dex === 'error' && <div className="text-center py-10 text-red-500">Lỗi tải dữ liệu.</div>}
               {status.dex === 'success' && (
@@ -440,7 +474,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* FOOTER & FAQ */}
+      {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200 mt-16 pt-10 pb-6 text-slate-600">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
            <div className="col-span-1 md:col-span-2">
@@ -448,32 +482,27 @@ export default function Home() {
                  <Zap size={24} className="text-blue-600"/> VNMetrics
               </div>
               <p className="text-sm leading-relaxed text-slate-500 pr-4 text-justify">
-                 VNMetrics là nền tảng dữ liệu tài sản số chuyên sâu, cung cấp góc nhìn đa chiều từ thị trường Spot, Dòng tiền ETF đến Tài chính phi tập trung (DeFi). Chúng tôi cam kết minh bạch nguồn dữ liệu.
+                 VNMetrics là nền tảng dữ liệu tài sản số chuyên sâu, cung cấp góc nhìn đa chiều từ thị trường Spot, Dòng tiền ETF đến Tài chính phi tập trung (DeFi).
               </p>
            </div>
            
            <div>
-              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Dữ liệu & Đối tác</h4>
+              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Câu hỏi thường gặp</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div> CoinGecko (Market Data)</li>
-                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div> DefiLlama (On-chain & DEX)</li>
-                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> CoinGlass (ETF Flows)</li>
+                 {faqs.map((faq, i) => <li key={i} className="cursor-pointer hover:text-blue-600" onClick={() => setOpenFaqIndex(openFaqIndex === i ? null : i)}>{faq.question}</li>)}
               </ul>
            </div>
 
            <div>
               <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Pháp lý</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                 <li><a href="#" className="hover:text-blue-600 transition">Điều khoản sử dụng</a></li>
-                 <li><a href="#" className="hover:text-blue-600 transition">Chính sách bảo mật</a></li>
-                 <li><a href="#" className="hover:text-blue-600 transition">Miễn trừ trách nhiệm</a></li>
+                 <li>Điều khoản sử dụng</li>
+                 <li>Chính sách bảo mật</li>
               </ul>
            </div>
         </div>
-
-        <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-400">
+        <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 text-center text-xs text-slate-400">
            <p>&copy; 2026 VNMetrics. All rights reserved.</p>
-           <p className="flex items-center gap-1"><ShieldAlert size={12}/> Tuân thủ Nghị quyết 05/2025/NQ-CP về thí điểm quản lý tài sản số.</p>
         </div>
       </footer>
     </div>
