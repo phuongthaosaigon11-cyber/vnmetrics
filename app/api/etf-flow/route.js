@@ -1,26 +1,14 @@
 import { NextResponse } from 'next/server';
 
-// --- QUAN TRỌNG: Để chạy trên Cloudflare Pages ---
 export const runtime = 'edge';
 
-// --- BỘ HEADERS MỚI (CHUYÊN CHO MARKET DATA) ---
-// Đã thay đổi Referer để không dính dáng gì tới Alpha
-const FAKE_HEADERS_BINANCE = {
+// --- CHUẨN HÓA HEADER THEO CODE DENO CỦA BẠN ---
+const FAKE_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": "https://www.binance.com/en/trade/BTC_USDT?type=spot", // Giả lập đang ở trang Trade Spot
-  "Origin": "https://www.binance.com",
-  "client-type": "web", // Giữ cái này vì API Binance cần
+  "Accept": "application/json",
+  "client-type": "web", // Quan trọng với Binance
   "Cache-Control": "no-cache",
   "Pragma": "no-cache"
-};
-
-const FAKE_HEADERS_COINGLASS = {
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": "https://www.coinglass.com/",
-  "Origin": "https://www.coinglass.com",
-  "Sec-Fetch-Dest": "empty",
-  "Sec-Fetch-Mode": "cors",
-  "Sec-Fetch-Site": "same-site"
 };
 
 export async function GET(request) {
@@ -29,48 +17,50 @@ export async function GET(request) {
 
   try {
     let targetUrl = '';
-    let fetchOptions = {
+    const fetchOptions = {
       method: 'GET',
-      next: { revalidate: 60 } // Cache 60s
+      headers: { ...FAKE_HEADERS },
+      next: { revalidate: 0 } // Tắt cache Next.js để tránh lưu lại lỗi 403
     };
 
-    // --- 1. XỬ LÝ BINANCE (Chart) ---
+    // --- 1. BINANCE CHART (Dùng API Public chuẩn) ---
     if (type === 'binance') {
       const symbol = searchParams.get('symbol');
       const interval = searchParams.get('interval') || '1d';
       const limit = searchParams.get('limit') || '100';
-
-      if (!symbol) return NextResponse.json({ error: 'Missing symbol' }, { status: 400 });
-
-      // Gọi API Public uiKlines
+      
       targetUrl = `https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-      fetchOptions.headers = FAKE_HEADERS_BINANCE;
+      
+      // Header riêng cho Binance (Tránh xung đột Alpha)
+      fetchOptions.headers['Referer'] = 'https://www.binance.com/en/trade';
+      fetchOptions.headers['Origin'] = 'https://www.binance.com';
     }
 
-    // --- 2. XỬ LÝ COINGLASS (ETF) ---
+    // --- 2. COINGLASS ETF ---
     else if (type === 'coinglass') {
       targetUrl = 'https://capi.coinglass.com/api/etf/flow';
-      fetchOptions.headers = FAKE_HEADERS_COINGLASS;
-      fetchOptions.next.revalidate = 300; // Cache 5 phút
+      
+      // Header riêng cho CoinGlass
+      fetchOptions.headers['Referer'] = 'https://www.coinglass.com/';
+      fetchOptions.headers['Origin'] = 'https://www.coinglass.com';
     }
 
     else {
-      return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid Type' }, { status: 400 });
     }
 
-    // --- THỰC HIỆN GỌI DỮ LIỆU ---
+    // --- GỌI API ---
     const res = await fetch(targetUrl, fetchOptions);
 
     if (!res.ok) {
-      // Nếu Binance chặn (403/429), trả về lỗi rõ ràng để Frontend biết
-      throw new Error(`Upstream API Error: ${res.status}`);
+      // Trả về lỗi chi tiết để Frontend biết đường chuyển sang backup
+      return NextResponse.json({ error: `Upstream Error ${res.status}` }, { status: res.status });
     }
 
     const data = await res.json();
     return NextResponse.json(data);
 
   } catch (error) {
-    console.error(`Proxy Error [${type}]:`, error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

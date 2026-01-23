@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  BarChart2, Lock, Eye, Bitcoin, Info, Activity, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ServerCrash
+  BarChart2, Lock, Eye, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Server
 } from 'lucide-react';
 
 // --- CẤU HÌNH ---
@@ -15,11 +15,10 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
-// Mapping ID cho Chart Binance
+// Mapping ID
 const BINANCE_PAIR_MAP = {
   'bitcoin': 'BTCUSDT', 'ethereum': 'ETHUSDT', 'solana': 'SOLUSDT', 'binancecoin': 'BNBUSDT',
-  'ripple': 'XRPUSDT', 'cardano': 'ADAUSDT', 'dogecoin': 'DOGEUSDT', 'tron': 'TRXUSDT',
-  'polkadot': 'DOTUSDT', 'avalanche-2': 'AVAXUSDT'
+  'ripple': 'XRPUSDT', 'cardano': 'ADAUSDT', 'dogecoin': 'DOGEUSDT', 'tron': 'TRXUSDT'
 };
 
 export default function Home() {
@@ -33,7 +32,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
-  const [errors, setErrors] = useState({});
+  
+  // Trạng thái nguồn dữ liệu (Để debug)
+  const [dataSource, setDataSource] = useState({ chart: 'Binance', etf: 'CoinGlass' });
 
   // --- FORMATTERS ---
   const formatPrice = (price) => {
@@ -52,80 +53,108 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCHERS ---
-  const fetchBinanceChart = async (coinId, range) => {
+  // --- FETCH CHART THÔNG MINH (Binance -> CoinGecko Fallback) ---
+  const fetchSmartChart = async (coinId, range) => {
+    let chartData = [];
+    
+    // 1. Thử gọi Binance qua Proxy "nhà làm"
     try {
       const symbol = BINANCE_PAIR_MAP[coinId];
-      if (!symbol) return [];
-      
-      let interval = '30m'; let limit = 48;
-      switch(range) {
-        case '1D': interval = '30m'; limit = 48; break;
-        case '1W': interval = '4h'; limit = 42; break;
-        case '1M': interval = '1d'; limit = 30; break;
-        case '1Y': interval = '1w'; limit = 52; break;
-        default: interval = '1h'; limit = 24;
+      if (symbol) {
+        let interval = '30m'; let limit = 48;
+        switch(range) {
+            case '1D': interval = '30m'; limit = 48; break;
+            case '1W': interval = '4h'; limit = 42; break;
+            case '1M': interval = '1d'; limit = 30; break;
+            case '1Y': interval = '1w'; limit = 52; break;
+        }
+        
+        const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
+        if (res.ok) {
+            const raw = await res.json();
+            if (Array.isArray(raw) && raw.length > 0) {
+                const baseline = parseFloat(raw[0][4]);
+                chartData = raw.map(c => ({
+                    time: range === '1D' ? new Date(c[0]).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}) : new Date(c[0]).toLocaleDateString('en-GB', {day:'2-digit', month:'2-digit'}),
+                    fullTime: new Date(c[0]).toLocaleString(),
+                    price: parseFloat(c[4]),
+                    volume: parseFloat(c[5]) * parseFloat(c[4]),
+                    baseline
+                }));
+                setDataSource(prev => ({...prev, chart: 'Binance (Live)'}));
+                return chartData; // Thành công -> Trả về ngay
+            }
+        }
       }
+    } catch (e) { console.log("Binance Proxy failed, switching to CoinGecko..."); }
 
-      // Gọi qua Proxy của chính mình (đã sửa Header Referer thành trade)
-      const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
-      
-      if (!res.ok) return [];
-      
-      const rawData = await res.json();
-      if (!Array.isArray(rawData)) return [];
-      
-      const baseline = parseFloat(rawData[0][4]);
-      return rawData.map(c => {
-         const t = new Date(c[0]);
-         let timeLabel = range === '1D' ? `${t.getHours()}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
-         if (range === '1Y') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
-         return {
-            time: timeLabel, fullTime: t.toLocaleString(),
-            price: parseFloat(c[4]), volume: parseFloat(c[5]) * parseFloat(c[4]), baseline
-         };
-      });
-    } catch (e) { return []; }
+    // 2. Nếu Binance thất bại -> Gọi CoinGecko (Backup an toàn)
+    try {
+        let days = '1';
+        if (range === '1W') days = '7';
+        if (range === '1M') days = '30';
+        if (range === '1Y') days = '365';
+
+        const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
+        const data = await res.json();
+        
+        if (data.prices) {
+            const baseline = data.prices[0][1];
+            chartData = data.prices.map((p, i) => ({
+                time: new Date(p[0]).toLocaleDateString(),
+                fullTime: new Date(p[0]).toLocaleString(),
+                price: p[1],
+                volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
+                baseline
+            }));
+            setDataSource(prev => ({...prev, chart: 'CoinGecko (Backup)'}));
+        }
+    } catch (e) { console.error("All chart sources failed"); }
+
+    return chartData;
   };
 
+  // --- FETCH TỔNG HỢP ---
   const fetchAllData = async () => {
     setLoading(true);
-    const newErrors = {};
 
-    // 1. MARKET (CoinGecko)
+    // 1. Market Data (CoinGecko)
     try {
-      const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
-      if (!cgRes.ok) throw new Error("CoinGecko Rate Limit");
+      const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron&order=market_cap_desc&per_page=10&page=1&sparkline=false');
       const cgData = await cgRes.json();
       
-      const firstCoinChart = await fetchBinanceChart(cgData[0].id, timeRange);
-      const processed = cgData.map((coin, idx) => ({
-        ...coin, symbol: coin.symbol.toUpperCase(),
-        chartData: idx === 0 ? firstCoinChart : []
-      }));
-      setCryptos(processed);
-      if (!selectedCoin) setSelectedCoin(processed[0]);
-    } catch (e) { newErrors.market = e.message; }
+      if (Array.isArray(cgData)) {
+          // Load chart cho coin đầu tiên
+          const firstChart = await fetchSmartChart(cgData[0].id, timeRange);
+          
+          const processed = cgData.map((coin, idx) => ({
+            ...coin, symbol: coin.symbol.toUpperCase(),
+            chartData: idx === 0 ? firstChart : []
+          }));
+          setCryptos(processed);
+          if (!selectedCoin) setSelectedCoin(processed[0]);
+      }
+    } catch (e) { console.error("Market Data Error"); }
 
-    // 2. ETF (CoinGlass qua Proxy)
+    // 2. ETF (CoinGlass Proxy)
     try {
        const etfRes = await fetch('/api/proxy?type=coinglass');
-       if (!etfRes.ok) throw new Error("ETF Proxy Error");
-       const etfJson = await etfRes.json();
-       
-       if (etfJson.data && Array.isArray(etfJson.data)) {
-          const targetTickers = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC', 'BTCO'];
-          const filtered = etfJson.data.filter(item => targetTickers.includes(item.ticker));
-          setEtfs(filtered);
-       } 
-    } catch (e) { newErrors.etf = "Lỗi kết nối dữ liệu."; }
+       if (etfRes.ok) {
+           const etfJson = await etfRes.json();
+           if (etfJson.data) {
+               const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
+               setEtfs(etfJson.data.filter(i => target.includes(i.ticker)));
+               setDataSource(prev => ({...prev, etf: 'CoinGlass (Live)'}));
+           }
+       }
+    } catch (e) { console.error("ETF Error"); }
 
-    // 3. DEX (DefiLlama Public)
+    // 3. DEX (DefiLlama)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
        if (dexData.protocols) setDexs(dexData.protocols.slice(0, 15));
-    } catch (e) { newErrors.dex = e.message; }
+    } catch (e) {}
 
     // 4. TVL
     try {
@@ -134,7 +163,6 @@ export default function Home() {
       setGlobalStats({ tvl: tvlData.reduce((a, b) => a + (b.tvl || 0), 0) });
     } catch (e) {}
 
-    setErrors(newErrors);
     setLoading(false);
   };
 
@@ -146,7 +174,7 @@ export default function Home() {
 
   const handleSelectCoin = async (coin) => {
     if (!coin.chartData || coin.chartData.length === 0) {
-      const chart = await fetchBinanceChart(coin.id, timeRange);
+      const chart = await fetchSmartChart(coin.id, timeRange); // Dùng hàm thông minh
       const updatedCoin = { ...coin, chartData: chart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
@@ -156,7 +184,7 @@ export default function Home() {
   const handleTimeChange = async (range) => {
     setTimeRange(range);
     if (selectedCoin) {
-      const chart = await fetchBinanceChart(selectedCoin.id, range);
+      const chart = await fetchSmartChart(selectedCoin.id, range);
       const updatedCoin = { ...selectedCoin, chartData: chart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === selectedCoin.id ? updatedCoin : c));
@@ -172,12 +200,7 @@ export default function Home() {
              <span className="text-slate-400">Price</span>
              <span className={`text-white font-bold ${jetbrainsMono.className}`}>{formatPrice(payload[0].payload.price)}</span>
           </div>
-          {payload[0].payload.volume > 0 && 
-            <div className="flex justify-between items-center">
-               <span className="text-slate-400">Vol</span>
-               <span className={`text-slate-300 font-bold ${jetbrainsMono.className}`}>{formatCompact(payload[0].payload.volume)}</span>
-            </div>
-          }
+          {payload[0].payload.volume > 0 && <div className="text-slate-300">Vol: {formatCompact(payload[0].payload.volume)}</div>}
         </div>
       );
     }
@@ -199,7 +222,10 @@ export default function Home() {
             <span className="flex items-center gap-1"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold ml-1">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>Real Data (Server Proxy)</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${dataSource.chart.includes('Binance') ? 'bg-green-500' : 'bg-orange-500'}`}></div>
+            <span>Source: {dataSource.chart} & {dataSource.etf}</span>
+         </div>
       </div>
 
       {/* HEADER */}
@@ -220,18 +246,18 @@ export default function Home() {
       {activeTab === 'market' && (
         <>
           <div className="bg-white border-b py-6 px-4">
-             {errors.market ? <div className="text-red-500 text-center p-4 border border-red-200 rounded bg-red-50">Lỗi kết nối CoinGecko: {errors.market}</div> : 
              <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
-                {cryptos.slice(0, 5).map(c => (
+                {cryptos.length === 0 ? <div className="col-span-5 text-center py-4 text-slate-400">Đang tải dữ liệu thị trường...</div> : 
+                cryptos.slice(0, 5).map(c => (
                    <div key={c.id} onClick={() => handleSelectCoin(c)} className={`p-4 rounded-xl border cursor-pointer transition hover:-translate-y-1 bg-white ${selectedCoin?.id===c.id ? 'ring-2 ring-blue-500' : ''}`}>
                       <div className="flex justify-between items-center mb-2"><span className="font-bold text-slate-700">{c.symbol}</span><span className={c.price_change_percentage_24h>=0?'text-green-500':'text-red-500'}>{c.price_change_percentage_24h?.toFixed(2)}%</span></div>
                       <div className={`text-lg font-bold ${jetbrainsMono.className}`}>{formatPrice(c.current_price)}</div>
                    </div>
                 ))}
-             </div>}
+             </div>
           </div>
 
-          {selectedCoin && !errors.market && (
+          {selectedCoin && (
              <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border shadow-sm h-[500px] flex flex-col">
                    <div className="flex justify-between mb-4">
@@ -255,7 +281,7 @@ export default function Home() {
                                <Area type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#grad)" strokeWidth={2}/>
                             </ComposedChart>
                          </ResponsiveContainer>
-                      ) : <div className="h-full flex items-center justify-center text-slate-400 border border-dashed rounded bg-slate-50"><Activity className="mr-2"/> Đang tải biểu đồ Binance...</div>}
+                      ) : <div className="h-full flex items-center justify-center text-slate-400 border border-dashed rounded bg-slate-50"><Activity className="mr-2"/> Đang tải biểu đồ...</div>}
                    </div>
                 </div>
                 <div className="lg:col-span-1 space-y-4">
@@ -305,13 +331,13 @@ export default function Home() {
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass Proxy)</h3>
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass)</h3>
               
-              {errors.etf ? (
+              {etfs.length === 0 ? (
                  <div className="text-center py-10">
-                    <ServerCrash size={48} className="mx-auto text-red-300 mb-3"/>
-                    <p className="text-red-500 font-bold">Lỗi tải dữ liệu CoinGlass</p>
-                    <p className="text-sm text-slate-400 mt-2">Vui lòng kiểm tra lại Proxy.</p>
+                    <Server size={48} className="mx-auto text-slate-300 mb-3"/>
+                    <p className="text-slate-500 font-bold">Đang tải dữ liệu từ Server...</p>
+                    <p className="text-sm text-slate-400 mt-2">Nếu không hiện sau 5s, vui lòng refresh.</p>
                  </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -344,7 +370,6 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama)</h3>
-              {errors.dex ? <div className="text-red-500 p-4">Lỗi tải dữ liệu DEX.</div> : 
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
@@ -362,11 +387,12 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
-              </div>}
+              </div>
            </div>
         </div>
       )}
 
+      {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200 mt-16 pt-10 pb-6 text-slate-600">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
            <div className="col-span-1 md:col-span-2">
