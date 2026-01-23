@@ -14,9 +14,6 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
-// Hàm ngủ (Delay) để tránh spam API
-const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
   const [etfs, setEtfs] = useState([]);
@@ -39,15 +36,15 @@ export default function Home() {
     dex: 'loading'
   });
 
-  // --- FORMATTERS ---
+  // --- FORMATTERS (SAFE) ---
   const formatPrice = (price) => {
-    if (!price || isNaN(price)) return '0.00';
+    if (price === undefined || price === null || isNaN(price)) return '0.00';
     if (currency === 'VND') return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(price * EXCHANGE_RATE);
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(price);
   };
 
   const formatCompact = (number) => {
-    if (!number || isNaN(number)) return '-';
+    if (number === undefined || number === null || isNaN(number)) return '-';
     let val = number; let pre = '$';
     if (currency === 'VND') { val = number * EXCHANGE_RATE; pre = '₫'; }
     if (val >= 1e12) return pre + (val/1e12).toFixed(2) + "T";
@@ -56,7 +53,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- 1. FETCH CHART (COINGECKO DIRECT) ---
+  // --- 1. FETCH CHART (SAFE) ---
   const fetchChart = async (coinId, range) => {
     try {
       let days = '1';
@@ -69,13 +66,13 @@ export default function Home() {
       if (!res.ok) return [];
       const data = await res.json();
       
-      if (data.prices) {
-        const baseline = data.prices[0][1];
+      if (data && data.prices && Array.isArray(data.prices)) {
+        const baseline = data.prices.length > 0 ? data.prices[0][1] : 0;
         return data.prices.map((p, i) => ({
           time: range === '1D' ? new Date(p[0]).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : new Date(p[0]).toLocaleDateString(),
           fullTime: new Date(p[0]).toLocaleString(),
-          price: p[1],
-          volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
+          price: p[1] || 0,
+          volume: (data.total_volumes && data.total_volumes[i]) ? data.total_volumes[i][1] : 0,
           baseline
         }));
       }
@@ -83,25 +80,26 @@ export default function Home() {
     } catch (e) { return []; }
   };
 
-  // --- 2. FETCH MARKET (COINGECKO DIRECT + RETRY) ---
+  // --- 2. FETCH MARKET ---
   const fetchMarket = useCallback(async () => {
     setStatus(prev => ({...prev, market: 'loading'}));
     try {
-      // Gọi CoinGecko trực tiếp
       const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
       
       if (res.status === 429) {
-        throw new Error("Rate Limit (429)");
+        setStatus(prev => ({...prev, market: 'error'})); // Rate limit
+        return;
       }
       
       const data = await res.json();
-      
-      // Load chart cho coin đầu (nếu chưa có)
+      if (!Array.isArray(data)) throw new Error("Invalid Data");
+
+      // Load chart cho coin đầu tiên
       const chart = await fetchChart(data[0].id, '1D');
       
       const processed = data.map((c, i) => ({
         ...c, 
-        symbol: c.symbol.toUpperCase(),
+        symbol: c.symbol ? c.symbol.toUpperCase() : '???',
         chartData: i === 0 ? chart : []
       }));
       
@@ -115,21 +113,21 @@ export default function Home() {
     }
   }, [selectedCoin]);
 
-  // --- 3. FETCH ETF (DÙNG CORSPROXY.IO) ---
+  // --- 3. FETCH ETF (CORSPROXY) ---
   const fetchETF = async () => {
     setStatus(prev => ({...prev, etf: 'loading'}));
     try {
-      // Kỹ thuật Bypass: Dùng corsproxy.io để lách CORS của CoinGlass
       const proxyUrl = "https://corsproxy.io/?https://capi.coinglass.com/api/etf/flow";
       const res = await fetch(proxyUrl);
-      
       if (!res.ok) throw new Error("Proxy Error");
       
       const json = await res.json();
-      if (json.data) {
+      if (json && json.data) {
         const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
         setEtfs(json.data.filter(i => target.includes(i.ticker)));
         setStatus(prev => ({...prev, etf: 'success'}));
+      } else {
+        setStatus(prev => ({...prev, etf: 'empty'}));
       }
     } catch (e) {
       console.error(e);
@@ -137,15 +135,14 @@ export default function Home() {
     }
   };
 
-  // --- 4. FETCH DEX (DEFILLAMA DIRECT) ---
+  // --- 4. FETCH DEX (DIRECT) ---
   const fetchDEX = async () => {
     setStatus(prev => ({...prev, dex: 'loading'}));
     try {
-      // DefiLlama cho phép gọi trực tiếp (CORS enabled)
       const res = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
       const json = await res.json();
       
-      if (json.protocols) {
+      if (json && json.protocols) {
         setDexs(json.protocols.sort((a,b) => (b.total24h||0) - (a.total24h||0)).slice(0, 15));
         setStatus(prev => ({...prev, dex: 'success'}));
       }
@@ -154,25 +151,24 @@ export default function Home() {
     }
   };
 
-  // --- INITIAL LOAD ---
+  // --- INITIAL ---
   useEffect(() => {
-    const hasConsented = localStorage.getItem('vnmetrics_consent');
-    if (!hasConsented) setShowConsent(true);
-
+    if (typeof window !== 'undefined') {
+       const hasConsented = localStorage.getItem('vnmetrics_consent');
+       if (!hasConsented) setShowConsent(true);
+    }
     fetchMarket();
     fetchETF();
     fetchDEX();
-
-    // TVL Direct call
-    fetch('https://api.llama.fi/v2/chains')
-      .then(r => r.json())
-      .then(d => setGlobalStats({ tvl: d.reduce((a, b) => a + (b.tvl || 0), 0) }))
-      .catch(e => {});
+    
+    // TVL
+    fetch('https://api.llama.fi/v2/chains').then(r=>r.json()).then(d=>{
+       if(Array.isArray(d)) setGlobalStats({ tvl: d.reduce((a, b) => a + (b.tvl || 0), 0) });
+    }).catch(()=>{});
   }, []);
 
   // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
-    // Nếu chưa có chart thì tải
     if (!coin.chartData || coin.chartData.length === 0) {
       const chart = await fetchChart(coin.id, timeRange);
       const updatedCoin = { ...coin, chartData: chart };
@@ -195,25 +191,20 @@ export default function Home() {
 
   const handleImgError = (symbol) => setImgError(prev => ({ ...prev, [symbol]: true }));
 
+  // Safe Gradient Calculation
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
-    const max = Math.max(...data.map(i => i.price));
-    const min = Math.min(...data.map(i => i.price));
+    const max = Math.max(...data.map(i => i.price || 0));
+    const min = Math.min(...data.map(i => i.price || 0));
     if (max <= min) return 0;
     return (max - data[0].baseline) / (max - min);
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
-  const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
-
-  const faqs = [
-    { question: "Tại sao đôi khi dữ liệu không hiển thị?", answer: "Do chúng tôi sử dụng API miễn phí từ CoinGecko và CoinGlass, đôi khi hệ thống bị giới hạn lượt truy cập (Rate Limit). Vui lòng đợi 30s và tải lại trang." },
-    { question: "Dữ liệu được cập nhật bao lâu một lần?", answer: "Giá cả được cập nhật mỗi phút. Dữ liệu ETF và DEX được cập nhật hàng ngày vào lúc đóng phiên Mỹ (sáng giờ Việt Nam)." },
-    { question: "VNMetrics có thu phí không?", answer: "Không. VNMetrics là dự án cộng đồng hoàn toàn miễn phí." }
-  ];
+  const maxVolume = selectedCoin?.chartData?.length > 0 ? Math.max(...selectedCoin.chartData.map(d => d.volume || 0)) : 0;
 
   const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
+    if (active && payload && payload.length && payload[0].payload) {
       const d = payload[0].payload;
       return (
         <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-xl text-xs min-w-[180px] z-50">
@@ -247,7 +238,7 @@ export default function Home() {
             <span className="flex items-center gap-1.5"><Globe size={12} className="text-blue-500"/> Global TVL: <span className="text-white font-bold">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1.5 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>Status: Client-Side Fetching</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2"><span>Status: Online</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
 
       {/* HEADER */}
@@ -272,21 +263,21 @@ export default function Home() {
                <div className="flex flex-col items-center justify-center py-8 text-red-500 gap-2">
                   <Activity size={32}/>
                   <span className="font-bold">CoinGecko Rate Limit (429)</span>
-                  <p className="text-xs text-slate-500">Bạn đang tải lại quá nhanh. Vui lòng đợi 1 phút.</p>
-                  <button onClick={fetchMarket} className="mt-2 bg-slate-100 px-4 py-2 rounded text-xs font-bold hover:bg-slate-200">Thử lại ngay</button>
+                  <p className="text-xs text-slate-500">Vui lòng đợi 30s rồi tải lại trang.</p>
                </div> 
              : 
              <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
                 {cryptos.length === 0 ? [1,2,3,4,5].map(i => <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse"/>) :
                 cryptos.slice(0, 5).map(c => {
-                   const isUp = c.price_change_percentage_24h >= 0;
+                   const pct = c.price_change_percentage_24h || 0;
+                   const isUp = pct >= 0;
                    return (
                      <div key={c.id} onClick={() => handleSelectCoin(c)} 
                           className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 hover:-translate-y-1 bg-white ${selectedCoin?.id===c.id ? 'ring-2 ring-blue-500 shadow-md' : 'hover:shadow-lg'} ${isUp?'border-green-100':'border-red-100'}`}>
                         <div className="flex justify-between items-center mb-3">
                            <span className="font-bold text-sm text-slate-700">{c.symbol}</span>
                            <span className={`flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded ${isUp ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                              {isUp ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h).toFixed(2)}%
+                              {isUp ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>}{Math.abs(pct).toFixed(2)}%
                            </span>
                         </div>
                         <div className={`text-lg font-bold ${jetbrainsMono.className} text-slate-900`}>{formatPrice(c.current_price)}</div>
@@ -301,7 +292,7 @@ export default function Home() {
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[550px]">
                   <div className="flex justify-between mb-6">
                     <div className="flex items-center gap-4">
-                       {imgError[selectedCoin.symbol] ? <div className="w-14 h-14 rounded-full border bg-slate-100 flex items-center justify-center text-xs font-bold">{selectedCoin.symbol}</div> : 
+                       {imgError[selectedCoin.symbol] ? <div className="w-14 h-14 rounded-full border bg-slate-100 flex items-center justify-center font-bold text-xs">{selectedCoin.symbol}</div> : 
                        <img src={selectedCoin.image} className="w-14 h-14 rounded-full border p-1" onError={() => handleImgError(selectedCoin.symbol)}/>}
                        <div>
                          <h2 className="text-3xl font-black text-slate-900">{selectedCoin.name}</h2>
@@ -362,8 +353,8 @@ export default function Home() {
                          ))}
                          <div className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
                             <span className="text-slate-500 flex items-center gap-1">Liquidity <Droplets size={12}/></span>
-                            <span className={`font-bold ${selectedCoin.total_volume / selectedCoin.market_cap > 0.1 ? 'text-green-600' : 'text-orange-500'} ${jetbrainsMono.className}`}>
-                               {((selectedCoin.total_volume / selectedCoin.market_cap) * 100).toFixed(2)}%
+                            <span className={`font-bold ${(selectedCoin.total_volume / selectedCoin.market_cap) > 0.1 ? 'text-green-600' : 'text-orange-500'} ${jetbrainsMono.className}`}>
+                               {selectedCoin.market_cap ? ((selectedCoin.total_volume / selectedCoin.market_cap) * 100).toFixed(2) : 0}%
                             </span>
                          </div>
                       </div>
@@ -373,12 +364,12 @@ export default function Home() {
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Database size={16}/> Supply Stats</h3>
                       <div className="space-y-4">
                          <div>
-                            <div className="flex justify-between items-center text-xs text-slate-500 mb-1"><span>Circulating</span><span>{((selectedCoin.circulating_supply / (selectedCoin.total_supply || selectedCoin.circulating_supply))*100).toFixed(0)}%</span></div>
-                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-600" style={{width: `${(selectedCoin.circulating_supply / (selectedCoin.total_supply || selectedCoin.circulating_supply)) * 100}%`}}></div></div>
+                            <div className="flex justify-between items-center text-xs text-slate-500 mb-1"><span>Circulating</span><span>{selectedCoin.total_supply ? ((selectedCoin.circulating_supply / selectedCoin.total_supply)*100).toFixed(0) : 100}%</span></div>
+                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-600" style={{width: `${selectedCoin.total_supply ? (selectedCoin.circulating_supply / selectedCoin.total_supply) * 100 : 100}%`}}></div></div>
                          </div>
                          <div className="flex justify-between items-center text-sm">
                             <span className="text-slate-500">Total Supply</span>
-                            <span className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.total_supply)}</span>
+                            <span className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.total_supply || selectedCoin.circulating_supply)}</span>
                          </div>
                       </div>
                    </div>
@@ -399,7 +390,7 @@ export default function Home() {
                       <tr key={coin.id} onClick={() => handleSelectCoin(coin)} className={`hover:bg-slate-50 cursor-pointer transition ${selectedCoin?.id === coin.id ? 'bg-blue-50/50' : ''}`}>
                         <td className="px-6 py-4 font-bold flex items-center gap-3"><img src={coin.image} className="w-8 h-8 rounded-full border"/>{coin.name}</td>
                         <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatPrice(coin.current_price)}</td>
-                        <td className={`px-6 py-4 text-right font-bold ${coin.price_change_percentage_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>{coin.price_change_percentage_24h?.toFixed(2)}%</td>
+                        <td className={`px-6 py-4 text-right font-bold ${(coin.price_change_percentage_24h || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(coin.price_change_percentage_24h || 0).toFixed(2)}%</td>
                         <td className={`px-6 py-4 text-right ${jetbrainsMono.className}`}>{formatCompact(coin.market_cap)}</td>
                         <td className="px-6 py-4 text-right"><button className="text-xs bg-slate-100 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded font-bold transition flex items-center gap-1 ml-auto"><Eye size={12}/> Xem</button></td>
                       </tr>
@@ -432,7 +423,7 @@ export default function Home() {
                           <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
                           <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
                           <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
-                          <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${(etf.flow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -463,7 +454,7 @@ export default function Home() {
                           <td className="px-6 py-4 font-bold text-slate-900">{dex.displayName || dex.name}</td>
                           <td className="px-6 py-4 text-slate-500 text-xs">{dex.chains[0]}</td>
                           <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(dex.total24h)}</td>
-                          <td className={`px-6 py-4 text-right font-bold ${dex.change_1d >= 0 ? 'text-green-600' : 'text-red-600'}`}>{dex.change_1d?.toFixed(2)}%</td>
+                          <td className={`px-6 py-4 text-right font-bold ${(dex.change_1d || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(dex.change_1d || 0).toFixed(2)}%</td>
                         </tr>
                       ))}
                     </tbody>
@@ -487,22 +478,27 @@ export default function Home() {
            </div>
            
            <div>
-              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Câu hỏi thường gặp</h4>
+              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Dữ liệu & Đối tác</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                 {faqs.map((faq, i) => <li key={i} className="cursor-pointer hover:text-blue-600" onClick={() => setOpenFaqIndex(openFaqIndex === i ? null : i)}>{faq.question}</li>)}
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div> CoinGecko (Market Data)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div> DefiLlama (On-chain & DEX)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> CoinGlass (ETF Flows)</li>
               </ul>
            </div>
 
            <div>
               <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Pháp lý</h4>
               <ul className="space-y-2 text-sm text-slate-500">
-                 <li>Điều khoản sử dụng</li>
-                 <li>Chính sách bảo mật</li>
+                 <li><a href="#" className="hover:text-blue-600 transition">Điều khoản sử dụng</a></li>
+                 <li><a href="#" className="hover:text-blue-600 transition">Chính sách bảo mật</a></li>
+                 <li><a href="#" className="hover:text-blue-600 transition">Miễn trừ trách nhiệm</a></li>
               </ul>
            </div>
         </div>
-        <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 text-center text-xs text-slate-400">
+
+        <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-400">
            <p>&copy; 2026 VNMetrics. All rights reserved.</p>
+           <p className="flex items-center gap-1"><ShieldAlert size={12}/> Tuân thủ Nghị quyết 05/2025/NQ-CP về thí điểm quản lý tài sản số.</p>
         </div>
       </footer>
     </div>
