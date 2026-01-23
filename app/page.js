@@ -28,7 +28,7 @@ export default function Home() {
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
 
-  // --- 2. DỮ LIỆU PHÁP LÝ ĐẦY ĐỦ (KHÔI PHỤC) ---
+  // Dữ liệu pháp lý (Nghị quyết 05/2025/NQ-CP)
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
@@ -52,35 +52,96 @@ export default function Home() {
     }
   ];
 
-  // --- 3. GENERATE DATA ---
+  // --- 2. GENERATE DATA (Đã sửa lỗi Giờ/Ngày) ---
   const generateChartData = (currentPrice, range) => {
-    const pointsMap = { '1D': 48, '1W': 14, '1M': 30, '1Y': 12, 'ALL': 50 };
-    const points = pointsMap[range] || 48;
+    // Cấu hình số điểm dữ liệu và khoảng thời gian
+    let points = 24;
+    let intervalMinutes = 60; // Mặc định 1D là từng giờ
+    let formatType = 'hour';  // hour | date
+
+    switch(range) {
+      case '1D': points = 24; intervalMinutes = 60; formatType = 'hour'; break;
+      case '1W': points = 7; intervalMinutes = 60 * 24; formatType = 'date'; break;
+      case '1M': points = 30; intervalMinutes = 60 * 24; formatType = 'date'; break;
+      case '1Y': points = 12; intervalMinutes = 60 * 24 * 30; formatType = 'month'; break;
+      case 'ALL': points = 50; intervalMinutes = 60 * 24 * 7; formatType = 'year'; break;
+      default: points = 24;
+    }
     
     const data = [];
-    // Logic giá tham chiếu (Open Price) cho Baseline
+    const now = new Date();
+    // Tạo giá tham chiếu cố định (Baseline)
     let price = currentPrice * (1 - (Math.random() * 0.05)); 
-    const baselinePrice = price; // Giá này cố định cho cả chart để làm mốc
+    const baselinePrice = price; 
 
-    for (let i = 0; i < points; i++) {
+    // Tạo dữ liệu ngược từ hiện tại về quá khứ
+    for (let i = points - 1; i >= 0; i--) {
+      // Tính thời gian thực
+      const t = new Date(now.getTime() - (i * intervalMinutes * 60 * 1000));
+      
+      // Format thời gian hiển thị
+      let timeLabel = '';
+      if (formatType === 'hour') {
+        timeLabel = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}`;
+      } else if (formatType === 'date') {
+        timeLabel = `${t.getDate()}/${t.getMonth() + 1}`;
+      } else if (formatType === 'month') {
+        timeLabel = `${t.getMonth() + 1}/${t.getFullYear()}`;
+      } else {
+         timeLabel = `${t.getFullYear()}`;
+      }
+
       const volatility = 0.02;
       const change = 1 + (Math.random() * volatility * 2 - volatility);
       price = price * change;
       const vol = Math.floor(Math.random() * 5000) + 500;
       
       data.push({ 
-        time: range === '1D' ? `${i}:00` : `T${i+1}`, 
+        // Đảo ngược mảng để điểm cuối cùng là hiện tại (sẽ xử lý ở bước push hoặc reverse sau cũng được, 
+        // nhưng cách loop i ngược từ points-1 về 0 ở trên đang tạo data từ quá khứ -> hiện tại là đúng)
+        time: timeLabel, 
         price: price, 
         baseline: baselinePrice, 
         volume: vol,
       });
     }
+    
+    // Đảm bảo data theo thứ tự thời gian tăng dần (Loop trên đã làm đúng: t giảm dần khi i tăng, nhưng ta push?)
+    // Cách loop trên: i=points-1 (xa nhất) -> i=0 (gần nhất). 
+    // t = now - (points-1)*interval (Quá khứ) -> push vào đầu mảng? Không, push vào đuôi.
+    // Sửa lại logic loop cho dễ hiểu: Loop từ 0 đến points.
+    
+    const finalData = [];
+    for (let i = 0; i < points; i++) {
+       // i=0 là xa nhất (quá khứ), i=points-1 là hiện tại
+       const timeOffset = (points - 1 - i) * intervalMinutes * 60 * 1000;
+       const t = new Date(now.getTime() - timeOffset);
+       
+       let timeLabel = '';
+       if (formatType === 'hour') timeLabel = `${t.getHours()}:00`;
+       else if (formatType === 'date') timeLabel = `${t.getDate()}/${t.getMonth() + 1}`;
+       else if (formatType === 'month') timeLabel = `T${t.getMonth() + 1}`;
+       else timeLabel = `${t.getFullYear()}`;
+
+       // Random giá
+       const volatility = 0.03;
+       price = price * (1 + (Math.random() * volatility * 2 - volatility));
+       const vol = Math.floor(Math.random() * 8000) + 1000;
+
+       finalData.push({
+         time: timeLabel,
+         price: price,
+         baseline: baselinePrice,
+         volume: vol
+       });
+    }
+    
     // Chốt giá cuối bằng giá thực tế
-    data[data.length - 1].price = currentPrice;
-    return data;
+    finalData[finalData.length - 1].price = currentPrice;
+    return finalData;
   };
 
-  // --- 4. LOGIC GRADIENT OFFSET ---
+  // --- 3. LOGIC GRADIENT OFFSET ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -125,6 +186,8 @@ export default function Home() {
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
+  
+  // Tính max volume cho domain trục Y (Volume)
   const maxVolume = selectedCoin ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
   return (
@@ -163,7 +226,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* MARKET RADAR (TICKER) */}
+      {/* MARKET RADAR */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-4">
@@ -252,7 +315,6 @@ export default function Home() {
 
                 <div className="flex gap-2">
                     <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                      {/* Thay Candle bằng Mountain */}
                       <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
                       <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
                     </div>
@@ -278,10 +340,10 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
-                    {/* Gradient Baseline Cải tiến: Xanh trên, Đỏ dưới */}
+                    {/* Gradient Baseline */}
                     <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} /> {/* Green */}
-                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} /> {/* Red */}
+                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} />
+                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} />
                     </linearGradient>
                     <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
                       <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
@@ -299,6 +361,7 @@ export default function Home() {
                   
                   <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94A3B8'}} axisLine={false} tickLine={false} minTickGap={30} />
                   
+                  {/* Trục Giá: Chiếm 80% phía trên */}
                   <YAxis 
                     yAxisId="price"
                     orientation="right" 
@@ -308,11 +371,12 @@ export default function Home() {
                     tickFormatter={(val) => `$${val.toLocaleString()}`}
                   />
 
-                  {/* Volume Axis (Ẩn) */}
+                  {/* Trục Volume: Chiếm 20% phía dưới */}
+                  {/* Domain [0, max * 5] sẽ ép volume xuống đáy */}
                   <YAxis 
                     yAxisId="volume" 
                     orientation="left" 
-                    domain={[0, maxVolume * 6]} 
+                    domain={[0, maxVolume * 5]} 
                     hide 
                   />
 
@@ -325,9 +389,10 @@ export default function Home() {
                     labelStyle={{color: '#94A3B8'}}
                   />
 
+                  {/* Volume Bar nằm ở đáy */}
                   <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={12} radius={[2, 2, 0, 0]} />
 
-                  {/* BASELINE CHART (FIX: Thêm baseValue để vùng màu "dính" vào baseline) */}
+                  {/* BASELINE CHART (Dính vào baseline) */}
                   {chartType === 'baseline' && (
                     <>
                       <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
@@ -335,7 +400,7 @@ export default function Home() {
                         yAxisId="price"
                         type="monotone" 
                         dataKey="price"
-                        baseValue={selectedCoin.chartData[0]?.baseline} // QUAN TRỌNG: Giúp vùng màu tô từ baseline
+                        baseValue={selectedCoin.chartData[0]?.baseline} // Fix: Dính vào đường baseline
                         stroke="url(#splitStroke)" 
                         fill="url(#splitFill)"
                         strokeWidth={2} 
@@ -345,7 +410,7 @@ export default function Home() {
                     </>
                   )}
 
-                  {/* MOUNTAIN CHART (Thay thế Candle) */}
+                  {/* MOUNTAIN CHART (Dính vào đáy trục giá) */}
                   {chartType === 'mountain' && (
                     <Area 
                       yAxisId="price"
@@ -409,7 +474,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* FAQ SECTION (ĐÃ KHÔI PHỤC) */}
+      {/* FAQ SECTION */}
       <section className="max-w-4xl mx-auto px-4 mt-16 mb-16">
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
