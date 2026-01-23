@@ -8,7 +8,7 @@ import {
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
   BarChart2, Lock, Eye, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Server, 
-  HelpCircle, ChevronDown, ChevronUp, FileText, AlertTriangle, Droplets, Database, Info
+  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, Droplets, Database, Info
 } from 'lucide-react';
 
 // --- CẤU HÌNH ---
@@ -27,8 +27,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
-  const [chartType, setChartType] = useState('baseline'); // Khôi phục lựa chọn loại Chart
-  const [openFaqIndex, setOpenFaqIndex] = useState(null); // Khôi phục FAQ state
+  const [chartType, setChartType] = useState('baseline'); 
+  const [openFaqIndex, setOpenFaqIndex] = useState(null);
+  const [imgError, setImgError] = useState({});
 
   // --- FORMATTERS ---
   const formatPrice = (price) => {
@@ -47,7 +48,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCH CHART (CoinGecko - Để có Volume & Baseline chuẩn) ---
+  // --- FETCH CHART (CoinGecko) ---
   const fetchChart = async (coinId, range) => {
     try {
         let days = '1';
@@ -56,17 +57,15 @@ export default function Home() {
         if (range === '1Y') days = '365';
         if (range === 'ALL') days = 'max';
 
-        // Gọi CoinGecko trực tiếp để lấy cả Price và Volume
         const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
         const data = await res.json();
         
         if (data.prices && data.prices.length > 0) {
-            const baseline = data.prices[0][1]; // Giá khởi điểm làm baseline
+            const baseline = data.prices[0][1];
             return data.prices.map((p, i) => ({
                 time: range === '1D' ? new Date(p[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(p[0]).toLocaleDateString([], {day: '2-digit', month:'2-digit'}),
                 fullTime: new Date(p[0]).toLocaleString(),
                 price: p[1],
-                // Volume có thể bị thiếu ở một số điểm, fallback về 0
                 volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
                 baseline: baseline
             }));
@@ -78,11 +77,10 @@ export default function Home() {
     }
   };
 
-  // --- FETCH TỔNG HỢP ---
+  // --- FETCH DATA ---
   const fetchAllData = async () => {
     setLoading(true);
 
-    // 1. Market (CoinGecko)
     try {
       const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
       const cgData = await cgRes.json();
@@ -98,9 +96,8 @@ export default function Home() {
           setCryptos(processed);
           if (!selectedCoin) setSelectedCoin(processed[0]);
       }
-    } catch (e) { console.error("Market Data Error", e); }
+    } catch (e) { console.error("Market Error", e); }
 
-    // 2. ETF (Qua Proxy)
     try {
        const etfRes = await fetch('/api/proxy?type=coinglass');
        if (etfRes.ok) {
@@ -112,14 +109,12 @@ export default function Home() {
        }
     } catch (e) { console.error("ETF Error", e); }
 
-    // 3. DEX (DefiLlama)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
        if (dexData.protocols) setDexs(dexData.protocols.slice(0, 15));
     } catch (e) {}
 
-    // 4. TVL
     try {
       const tvlRes = await fetch('https://api.llama.fi/v2/chains');
       const tvlData = await tvlRes.json();
@@ -135,7 +130,6 @@ export default function Home() {
     fetchAllData();
   }, []);
 
-  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
     if (!coin.chartData || coin.chartData.length === 0) {
       const chart = await fetchChart(coin.id, timeRange);
@@ -155,6 +149,10 @@ export default function Home() {
     }
   };
 
+  const handleImgError = (symbol) => {
+    setImgError(prev => ({ ...prev, [symbol]: true }));
+  };
+
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -169,11 +167,10 @@ export default function Home() {
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
-  // --- FAQ DATA ---
   const faqs = [
-    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và CoinGlass. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo, độ trễ có thể xảy ra tùy thuộc vào API gốc." },
-    { question: "Tôi có thể giao dịch trực tiếp trên VNMetrics không?", answer: "Không. VNMetrics chỉ là nền tảng cung cấp thông tin và dữ liệu phân tích. Chúng tôi không cung cấp dịch vụ môi giới, khớp lệnh hay giữ tiền của người dùng." },
-    { question: "Pháp lý về tài sản số tại Việt Nam thế nào?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành và tự chịu trách nhiệm về quyết định đầu tư." }
+    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và CoinGlass. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo." },
+    { question: "Tôi có thể giao dịch trực tiếp không?", answer: "Không. VNMetrics chỉ là nền tảng cung cấp thông tin. Chúng tôi không cung cấp dịch vụ môi giới hay giữ tiền của người dùng." },
+    { question: "Pháp lý về tài sản số tại Việt Nam?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành." }
   ];
 
   const CustomTooltip = ({ active, payload }) => {
@@ -231,7 +228,6 @@ export default function Home() {
       {/* MARKET TAB */}
       {activeTab === 'market' && (
         <>
-          {/* TICKER (ĐÃ THÊM MÀU NỀN THEO YÊU CẦU) */}
           <div className="bg-white border-b py-6 px-4">
              <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
                 {cryptos.length === 0 ? <div className="col-span-5 text-center text-slate-400 py-4">Đang tải dữ liệu thị trường...</div> :
@@ -259,12 +255,10 @@ export default function Home() {
 
           {selectedCoin && (
              <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* CHART AREA */}
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
                   <div className="flex flex-col md:flex-row justify-between mb-6 gap-4">
                     <div className="flex items-center gap-4">
-                       <img src={selectedCoin.image} className="w-12 h-12 rounded-full border p-0.5 bg-white"/>
+                       {imgError[selectedCoin.symbol] ? <div className="w-12 h-12 rounded-full border bg-slate-100 flex items-center justify-center"><Bitcoin className="text-orange-500"/></div> : <img src={selectedCoin.image} className="w-12 h-12 rounded-full border p-0.5 bg-white" onError={() => handleImgError(selectedCoin.symbol)}/>}
                        <div>
                          <h2 className="text-3xl font-black text-slate-900">{selectedCoin.name}</h2>
                          <div className="flex items-center gap-3 mt-1">
@@ -299,7 +293,7 @@ export default function Home() {
                             <XAxis dataKey="time" tick={{fontSize:10}} axisLine={false} tickLine={false} minTickGap={30}/>
                             <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize:11, fontFamily:'monospace'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} />
                             
-                            {/* CỘT VOLUME (ĐÃ KHÔI PHỤC) */}
+                            {/* CỘT VOLUME KHÔI PHỤC */}
                             <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 4]} hide />
                             <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
 
@@ -307,7 +301,6 @@ export default function Home() {
                             
                             {chartType === 'baseline' ? (
                                <>
-                                 {/* ĐƯỜNG BASELINE (ĐÃ KHÔI PHỤC) */}
                                  <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
                                  <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
                                </>
@@ -320,7 +313,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* STATS AREA (ĐÃ THÊM NHIỀU DỮ LIỆU "TÙM LUM" NHƯ YÊU CẦU) */}
                 <div className="lg:col-span-1 space-y-4">
                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Globe size={16}/> Market Overview</h3>
@@ -369,11 +361,9 @@ export default function Home() {
                       <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${((selectedCoin.current_price - selectedCoin.low_24h)/(selectedCoin.high_24h - selectedCoin.low_24h))*100}%`}}></div></div>
                    </div>
                 </div>
-              </div>
-            </div>
+             </div>
           )}
 
-          {/* TABLE */}
           <div className="max-w-7xl mx-auto px-4 mt-8 mb-8">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-lg flex items-center gap-2"><BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết</h3></div>
@@ -400,7 +390,6 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
@@ -429,7 +418,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* DEX TAB */}
       {activeTab === 'dex' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -456,7 +444,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* FAQ SECTION (KHÔI PHỤC) */}
+      {/* FAQ SECTION */}
       <section className="max-w-4xl mx-auto px-4 mt-16">
         <h2 className="text-2xl font-bold text-slate-900 mb-6 text-center flex items-center justify-center gap-2"><HelpCircle className="text-blue-600"/> Câu hỏi thường gặp</h2>
         <div className="space-y-3">
@@ -472,7 +460,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* DISCLAIMER SECTION (KHÔI PHỤC ĐẦY ĐỦ) */}
+      {/* DISCLAIMER */}
       <section className="max-w-7xl mx-auto px-4 mt-12 mb-8">
          <div className="bg-slate-50 border border-slate-200 p-6 rounded-xl text-xs text-slate-500 text-justify leading-relaxed">
             <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><AlertTriangle size={14}/> MIỄN TRỪ TRÁCH NHIỆM</h4>
