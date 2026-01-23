@@ -52,7 +52,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCHERS (DÙNG PROXY CHUNG) ---
+  // --- FETCHERS (DÙNG PUBLIC CORS PROXY - FIX TRIỆT ĐỂ) ---
   const fetchBinanceChart = async (coinId, range) => {
     try {
       const symbol = BINANCE_PAIR_MAP[coinId];
@@ -67,10 +67,13 @@ export default function Home() {
         default: interval = '1h'; limit = 24;
       }
 
-      // GỌI QUA PROXY "NHÀ LÀM" (?type=binance)
-      const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
+      // Gọi trực tiếp Binance (Thường OK từ Client) - Nếu lỗi sẽ thử Proxy
+      let res = await fetch(`https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
       
-      if (!res.ok) return [];
+      // Fallback: Nếu Binance chặn, dùng Proxy Public
+      if (!res.ok) {
+         res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`)}`);
+      }
       
       const rawData = await res.json();
       if (!Array.isArray(rawData)) return [];
@@ -85,7 +88,7 @@ export default function Home() {
             price: parseFloat(c[4]), volume: parseFloat(c[5]) * parseFloat(c[4]), baseline
          };
       });
-    } catch (e) { return []; }
+    } catch (e) { console.error(e); return []; }
   };
 
   const fetchAllData = async () => {
@@ -107,9 +110,10 @@ export default function Home() {
       if (!selectedCoin) setSelectedCoin(processed[0]);
     } catch (e) { newErrors.market = e.message; }
 
-    // 2. ETF (CoinGlass Proxy -> ?type=coinglass)
+    // 2. ETF (CoinGlass qua Public Proxy - FIX LỖI ẢNH BẠN GỬI)
     try {
-       const etfRes = await fetch('/api/proxy?type=coinglass');
+       // Dùng allorigins.win để bypass CORS của Coinglass
+       const etfRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent('https://capi.coinglass.com/api/etf/flow')}`);
        const etfJson = await etfRes.json();
        
        if (etfJson.data && Array.isArray(etfJson.data)) {
@@ -121,10 +125,10 @@ export default function Home() {
        }
     } catch (e) {
        console.error("ETF Error:", e);
-       newErrors.etf = "Lỗi kết nối CoinGlass Proxy";
+       newErrors.etf = "Không thể lấy dữ liệu CoinGlass (Chặn Proxy Public)";
     }
 
-    // 3. DEX (DefiLlama Public)
+    // 3. DEX (DefiLlama Public - Thường không bị chặn)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
@@ -203,7 +207,7 @@ export default function Home() {
             <span className="flex items-center gap-1"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold ml-1">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>Real Data (Universal Proxy)</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2"><span>Data Source: Binance, DefiLlama</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
 
       {/* HEADER */}
@@ -305,7 +309,7 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB (DATA FROM COINGLASS PROXY) */}
+      {/* ETF TAB (DATA FROM COINGLASS VIA PUBLIC PROXY) */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
@@ -315,7 +319,7 @@ export default function Home() {
                  <div className="text-center py-10">
                     <ServerCrash size={48} className="mx-auto text-red-300 mb-3"/>
                     <p className="text-red-500 font-bold">Lỗi tải dữ liệu CoinGlass</p>
-                    <p className="text-sm text-slate-400 mt-2">Đang thử kết nối lại...</p>
+                    <p className="text-sm text-slate-400 mt-2">Dữ liệu hiện không khả dụng qua Public Proxy.</p>
                  </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -326,10 +330,10 @@ export default function Home() {
                     <tbody className="divide-y divide-slate-100">
                       {etfs.map((etf, i) => (
                         <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 font-bold">{etf.ticker}</td>
+                          <td className="px-6 py-4 font-bold flex items-center gap-2"><div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center border text-[10px]">{etf.ticker[0]}</div>{etf.ticker}</td>
                           <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
                           <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
-                          <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
+                          <td className={`px-6 py-4 text-right font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
                           <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                              {etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}
                           </td>
