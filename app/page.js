@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  BarChart2, Lock, Eye, Bitcoin, Info, Activity, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ServerCrash, RefreshCw, Layers
+  BarChart2, Lock, Eye, Bitcoin, Info, Activity, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ServerCrash, RefreshCw
 } from 'lucide-react';
 
 // --- CẤU HÌNH ---
@@ -52,7 +52,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCHERS (SỬ DỤNG PROXY) ---
+  // --- FETCHERS (DÙNG PROXY CHUNG) ---
   const fetchBinanceChart = async (coinId, range) => {
     try {
       const symbol = BINANCE_PAIR_MAP[coinId];
@@ -67,8 +67,8 @@ export default function Home() {
         default: interval = '1h'; limit = 24;
       }
 
-      // GỌI QUA PROXY "NHÀ LÀM" (Fix lỗi CORS/403)
-      const res = await fetch(`/api/binance-proxy?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+      // GỌI QUA PROXY "NHÀ LÀM" (?type=binance)
+      const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
       
       if (!res.ok) return [];
       
@@ -95,11 +95,10 @@ export default function Home() {
     // 1. MARKET (CoinGecko)
     try {
       const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
-      if (!cgRes.ok) throw new Error("CoinGecko Limit");
+      if (!cgRes.ok) throw new Error("CoinGecko Rate Limit");
       const cgData = await cgRes.json();
       
       const firstCoinChart = await fetchBinanceChart(cgData[0].id, timeRange);
-      
       const processed = cgData.map((coin, idx) => ({
         ...coin, symbol: coin.symbol.toUpperCase(),
         chartData: idx === 0 ? firstCoinChart : []
@@ -108,18 +107,24 @@ export default function Home() {
       if (!selectedCoin) setSelectedCoin(processed[0]);
     } catch (e) { newErrors.market = e.message; }
 
-    // 2. ETF (CoinGlass Proxy)
+    // 2. ETF (CoinGlass Proxy -> ?type=coinglass)
     try {
-       const etfRes = await fetch('/api/etf-flow');
+       const etfRes = await fetch('/api/proxy?type=coinglass');
        const etfJson = await etfRes.json();
+       
        if (etfJson.data && Array.isArray(etfJson.data)) {
-          const targetTickers = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
+          const targetTickers = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC', 'BTCO'];
           const filtered = etfJson.data.filter(item => targetTickers.includes(item.ticker));
           setEtfs(filtered);
-       } 
-    } catch (e) { newErrors.etf = "Lỗi kết nối CoinGlass"; }
+       } else {
+          throw new Error("Empty Data");
+       }
+    } catch (e) {
+       console.error("ETF Error:", e);
+       newErrors.etf = "Lỗi kết nối CoinGlass Proxy";
+    }
 
-    // 3. DEX (DefiLlama)
+    // 3. DEX (DefiLlama Public)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
@@ -143,7 +148,6 @@ export default function Home() {
     fetchAllData();
   }, []);
 
-  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
     if (!coin.chartData || coin.chartData.length === 0) {
       const chart = await fetchBinanceChart(coin.id, timeRange);
@@ -199,7 +203,7 @@ export default function Home() {
             <span className="flex items-center gap-1"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold ml-1">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>Real Data (Fake Header Proxy)</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2"><span>Real Data (Universal Proxy)</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
 
       {/* HEADER */}
@@ -220,9 +224,9 @@ export default function Home() {
       {activeTab === 'market' && (
         <>
           <div className="bg-white border-b py-6 px-4">
-             {errors.market ? <div className="text-red-500 text-center p-4 border border-red-200 rounded bg-red-50">Lỗi kết nối CoinGecko (Rate Limit). Vui lòng chờ...</div> : 
+             {errors.market ? <div className="text-red-500 text-center p-4 border border-red-200 rounded bg-red-50">Lỗi kết nối CoinGecko: {errors.market}</div> : 
              <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
-                {cryptos.map(c => (
+                {cryptos.slice(0, 5).map(c => (
                    <div key={c.id} onClick={() => handleSelectCoin(c)} className={`p-4 rounded-xl border cursor-pointer transition hover:-translate-y-1 bg-white ${selectedCoin?.id===c.id ? 'ring-2 ring-blue-500' : ''}`}>
                       <div className="flex justify-between items-center mb-2"><span className="font-bold text-slate-700">{c.symbol}</span><span className={c.price_change_percentage_24h>=0?'text-green-500':'text-red-500'}>{c.price_change_percentage_24h?.toFixed(2)}%</span></div>
                       <div className={`text-lg font-bold ${jetbrainsMono.className}`}>{formatPrice(c.current_price)}</div>
@@ -301,30 +305,40 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB */}
+      {/* ETF TAB (DATA FROM COINGLASS PROXY) */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass Proxy)</h3>
-              {errors.etf ? <div className="text-center text-red-500 py-10">Lỗi tải dữ liệu ETF: {errors.etf}. Hãy kiểm tra API Route.</div> : 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                    <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Issuer</th><th className="px-6 py-4 text-right">Price</th><th className="px-6 py-4 text-right">AUM</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {etfs.map((etf, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 font-bold flex items-center gap-2"><div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center border text-[10px]">{etf.ticker[0]}</div>{etf.ticker}</td>
-                        <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
-                        <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
-                        <td className={`px-6 py-4 text-right font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
-                        <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>}
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass)</h3>
+              
+              {errors.etf ? (
+                 <div className="text-center py-10">
+                    <ServerCrash size={48} className="mx-auto text-red-300 mb-3"/>
+                    <p className="text-red-500 font-bold">Lỗi tải dữ liệu CoinGlass</p>
+                    <p className="text-sm text-slate-400 mt-2">Đang thử kết nối lại...</p>
+                 </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
+                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Issuer</th><th className="px-6 py-4 text-right">Price</th><th className="px-6 py-4 text-right">AUM</th><th className="px-6 py-4 text-right">Flow (Daily)</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {etfs.map((etf, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-6 py-4 font-bold">{etf.ticker}</td>
+                          <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
+                          <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                             {etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
            </div>
         </div>
       )}
@@ -334,6 +348,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama)</h3>
+              {errors.dex ? <div className="text-red-500 p-4">Lỗi tải dữ liệu DEX.</div> : 
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
@@ -351,7 +366,7 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
            </div>
         </div>
       )}
