@@ -24,27 +24,35 @@ export default function Home() {
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
   const [timeRange, setTimeRange] = useState('1D');
-  const [chartType, setChartType] = useState('baseline'); // Default là Baseline
+  const [chartType, setChartType] = useState('baseline'); 
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
 
-  // Dữ liệu pháp lý (Nghị quyết 05/2025/NQ-CP)
+  // --- 2. DỮ LIỆU PHÁP LÝ ĐẦY ĐỦ (KHÔI PHỤC) ---
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
-      answer: "Theo Điều 46 Luật Công nghiệp Công nghệ số và Điều 3 Nghị quyết 05/2025/NQ-CP, Tài sản mã hóa được công nhận là 'Tài sản số'. Tuy nhiên, nó không được sử dụng làm phương tiện thanh toán."
+      answer: "Theo Điều 46 Luật Công nghiệp Công nghệ số (71/2025/QH15) và Điều 3 Nghị quyết 05/2025/NQ-CP, Tài sản mã hóa được công nhận là 'Tài sản số' và là tài sản theo Bộ luật Dân sự. Tuy nhiên, nó không được sử dụng làm phương tiện thanh toán thay thế tiền pháp định."
     },
     {
-      question: "Nhà đầu tư cá nhân trong nước giao dịch thế nào?",
-      answer: "Trong giai đoạn thí điểm, nhà đầu tư trong nước PHẢI thông qua các Tổ chức cung cấp dịch vụ đã được cấp phép để đảm bảo an toàn."
+      question: "Nhà đầu tư cá nhân trong nước có được tự do giao dịch không?",
+      answer: "Theo Điều 7 Nghị quyết 05/2025/NQ-CP, trong giai đoạn thí điểm 5 năm, nhà đầu tư trong nước được phép mở tài khoản, lưu ký và giao dịch nhưng PHẢI thông qua các Tổ chức cung cấp dịch vụ đã được Bộ Tài chính cấp phép để đảm bảo an toàn và tuân thủ quy định."
     },
     {
       question: "Thuế đối với tài sản mã hóa được tính như thế nào?",
-      answer: "Trong thời gian thí điểm, chính sách thuế đối với giao dịch tài sản mã hóa được áp dụng tương tự như quy định về thuế đối với chứng khoán."
+      answer: "Theo khoản 9 Điều 4 Nghị quyết 05/2025/NQ-CP, chính sách thuế đối với giao dịch, chuyển nhượng tài sản mã hóa được áp dụng tương tự như quy định về thuế đối với chứng khoán cho đến khi có hướng dẫn mới."
+    },
+    {
+      question: "Tôi có thể dùng tài sản mã hóa để thanh toán hàng hóa dịch vụ không?",
+      answer: "Không. Mọi hành vi sử dụng tài sản mã hóa để thanh toán, trao đổi hàng hóa, dịch vụ tại Việt Nam là vi phạm pháp luật và có thể bị xử phạt hành chính hoặc truy cứu trách nhiệm hình sự tùy mức độ."
+    },
+    {
+      question: "Quyền lợi của tôi được bảo vệ như thế nào khi tham gia VNMetrics?",
+      answer: "VNMetrics chỉ đóng vai trò cổng thông tin dữ liệu tra cứu. Chúng tôi không giữ tiền hay tài sản của người dùng. Khi bạn thực hiện Lưu ký tại các đối tác được cấp phép (theo danh sách của Bộ Tài chính), tài sản của bạn sẽ được bảo vệ theo quy định của Luật thí điểm."
     }
   ];
 
-  // --- 2. GENERATE DATA ---
+  // --- 3. GENERATE DATA ---
   const generateChartData = (currentPrice, range) => {
     const pointsMap = { '1D': 48, '1W': 14, '1M': 30, '1Y': 12, 'ALL': 50 };
     const points = pointsMap[range] || 48;
@@ -63,7 +71,7 @@ export default function Home() {
       data.push({ 
         time: range === '1D' ? `${i}:00` : `T${i+1}`, 
         price: price, 
-        baseline: baselinePrice, // Mốc so sánh
+        baseline: baselinePrice, 
         volume: vol,
       });
     }
@@ -72,7 +80,7 @@ export default function Home() {
     return data;
   };
 
-  // --- 3. LOGIC BASELINE CHUẨN (CŨ) ---
+  // --- 4. LOGIC GRADIENT OFFSET ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -80,8 +88,8 @@ export default function Home() {
     const baseline = data[0].baseline;
 
     if (dataMax <= dataMin) return 0;
-    if (baseline >= dataMax) return 0; // Toàn bộ đỏ
-    if (baseline <= dataMin) return 1; // Toàn bộ xanh
+    if (baseline >= dataMax) return 0; 
+    if (baseline <= dataMin) return 1; 
 
     return (dataMax - baseline) / (dataMax - dataMin);
   };
@@ -244,7 +252,7 @@ export default function Home() {
 
                 <div className="flex gap-2">
                     <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                      {/* Chọn Chart Type: Baseline hoặc Mountain */}
+                      {/* Thay Candle bằng Mountain */}
                       <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
                       <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
                     </div>
@@ -270,7 +278,7 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
-                    {/* Gradient Baseline CŨ (Xanh trên / Đỏ dưới) */}
+                    {/* Gradient Baseline Cải tiến: Xanh trên, Đỏ dưới */}
                     <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} /> {/* Green */}
                       <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} /> {/* Red */}
@@ -280,7 +288,7 @@ export default function Home() {
                       <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
                     </linearGradient>
 
-                    {/* Gradient Mountain (Xanh Dương) */}
+                    {/* Gradient Mountain */}
                     <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
@@ -319,14 +327,15 @@ export default function Home() {
 
                   <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={12} radius={[2, 2, 0, 0]} />
 
-                  {/* BASELINE CHART */}
+                  {/* BASELINE CHART (FIX: Thêm baseValue để vùng màu "dính" vào baseline) */}
                   {chartType === 'baseline' && (
                     <>
                       <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
                       <Area 
                         yAxisId="price"
                         type="monotone" 
-                        dataKey="price" 
+                        dataKey="price"
+                        baseValue={selectedCoin.chartData[0]?.baseline} // QUAN TRỌNG: Giúp vùng màu tô từ baseline
                         stroke="url(#splitStroke)" 
                         fill="url(#splitFill)"
                         strokeWidth={2} 
@@ -336,7 +345,7 @@ export default function Home() {
                     </>
                   )}
 
-                  {/* MOUNTAIN CHART (MỚI) */}
+                  {/* MOUNTAIN CHART (Thay thế Candle) */}
                   {chartType === 'mountain' && (
                     <Area 
                       yAxisId="price"
@@ -399,6 +408,27 @@ export default function Home() {
           </table>
         </div>
       </div>
+
+      {/* FAQ SECTION (ĐÃ KHÔI PHỤC) */}
+      <section className="max-w-4xl mx-auto px-4 mt-16 mb-16">
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
+            <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
+          </h2>
+          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP</p>
+        </div>
+        <div className="space-y-3">
+          {faqs.map((faq, idx) => (
+            <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <button onClick={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)} className="w-full flex justify-between items-center p-5 text-left hover:bg-slate-50 transition">
+                <span className="font-bold text-slate-800 pr-4">{faq.question}</span>
+                {openFaqIndex === idx ? <ChevronUp size={20} className="text-blue-600"/> : <ChevronDown size={20} className="text-slate-400"/>}
+              </button>
+              {openFaqIndex === idx && <div className="p-5 pt-0 text-sm text-slate-600 bg-white"><div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-justify">{faq.answer}</div></div>}
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* FOOTER */}
       <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
