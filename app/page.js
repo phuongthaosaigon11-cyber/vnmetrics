@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin
+  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database
 } from 'lucide-react';
 
 // --- 1. CẤU HÌNH FONT ---
@@ -17,6 +17,51 @@ const beVietnam = Be_Vietnam_Pro({
   weight: ['400', '500', '600', '700', '800'] 
 });
 const robotoMono = Roboto_Mono({ subsets: ['latin'] });
+
+// --- 2. FORMATTERS (Hỗ trợ hiển thị số liệu lớn T, B, M) ---
+const formatCompactNumber = (number) => {
+  if (number >= 1.0e+12) return (number / 1.0e+12).toFixed(2) + "T";
+  if (number >= 1.0e+9) return (number / 1.0e+9).toFixed(2) + "B";
+  if (number >= 1.0e+6) return (number / 1.0e+6).toFixed(2) + "M";
+  return number.toString();
+};
+
+const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+
+// --- 3. CUSTOM TOOLTIP (Design chuẩn CoinMarketCap - Nền tối) ---
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-[#171924] border border-[#262936] p-3 rounded-lg shadow-xl text-xs min-w-[200px] z-50">
+        <div className="text-slate-400 mb-2 font-medium border-b border-[#262936] pb-1">
+           {data.fullTime}
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-4">
+             <div className="flex items-center gap-1.5">
+               <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+               <span className="text-slate-300 font-medium">Price</span>
+             </div>
+             <span className={`font-bold ${robotoMono.className} text-white`}>
+               ${data.price.toLocaleString(undefined, {minimumFractionDigits: 2})}
+             </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+             <div className="flex items-center gap-1.5">
+               <div className="w-2 h-2 rounded-full bg-slate-500"></div>
+               <span className="text-slate-300 font-medium">Vol 24h</span>
+             </div>
+             <span className={`font-bold ${robotoMono.className} text-white`}>
+               ${formatCompactNumber(data.volume)}
+             </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
@@ -52,96 +97,53 @@ export default function Home() {
     }
   ];
 
-  // --- 2. GENERATE DATA (Đã sửa lỗi Giờ/Ngày) ---
+  // --- 4. GENERATE DATA (Fixed Ngày Giờ & Mock Stats) ---
   const generateChartData = (currentPrice, range) => {
-    // Cấu hình số điểm dữ liệu và khoảng thời gian
     let points = 24;
-    let intervalMinutes = 60; // Mặc định 1D là từng giờ
-    let formatType = 'hour';  // hour | date
-
+    let intervalMinutes = 60;
+    
     switch(range) {
-      case '1D': points = 24; intervalMinutes = 60; formatType = 'hour'; break;
-      case '1W': points = 7; intervalMinutes = 60 * 24; formatType = 'date'; break;
-      case '1M': points = 30; intervalMinutes = 60 * 24; formatType = 'date'; break;
-      case '1Y': points = 12; intervalMinutes = 60 * 24 * 30; formatType = 'month'; break;
-      case 'ALL': points = 50; intervalMinutes = 60 * 24 * 7; formatType = 'year'; break;
-      default: points = 24;
+      case '1D': points = 48; intervalMinutes = 30; break;
+      case '1W': points = 50; intervalMinutes = 60 * 4; break;
+      case '1M': points = 30; intervalMinutes = 60 * 24; break;
+      case '1Y': points = 52; intervalMinutes = 60 * 24 * 7; break;
+      case 'ALL': points = 60; intervalMinutes = 60 * 24 * 30; break;
+      default: points = 48; intervalMinutes = 30;
     }
     
     const data = [];
     const now = new Date();
-    // Tạo giá tham chiếu cố định (Baseline)
+    // Giá tham chiếu cố định (Baseline)
     let price = currentPrice * (1 - (Math.random() * 0.05)); 
     const baselinePrice = price; 
 
-    // Tạo dữ liệu ngược từ hiện tại về quá khứ
-    for (let i = points - 1; i >= 0; i--) {
-      // Tính thời gian thực
-      const t = new Date(now.getTime() - (i * intervalMinutes * 60 * 1000));
-      
-      // Format thời gian hiển thị
-      let timeLabel = '';
-      if (formatType === 'hour') {
-        timeLabel = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}`;
-      } else if (formatType === 'date') {
-        timeLabel = `${t.getDate()}/${t.getMonth() + 1}`;
-      } else if (formatType === 'month') {
-        timeLabel = `${t.getMonth() + 1}/${t.getFullYear()}`;
-      } else {
-         timeLabel = `${t.getFullYear()}`;
-      }
-
-      const volatility = 0.02;
-      const change = 1 + (Math.random() * volatility * 2 - volatility);
-      price = price * change;
-      const vol = Math.floor(Math.random() * 5000) + 500;
-      
-      data.push({ 
-        // Đảo ngược mảng để điểm cuối cùng là hiện tại (sẽ xử lý ở bước push hoặc reverse sau cũng được, 
-        // nhưng cách loop i ngược từ points-1 về 0 ở trên đang tạo data từ quá khứ -> hiện tại là đúng)
-        time: timeLabel, 
-        price: price, 
-        baseline: baselinePrice, 
-        volume: vol,
-      });
-    }
-    
-    // Đảm bảo data theo thứ tự thời gian tăng dần (Loop trên đã làm đúng: t giảm dần khi i tăng, nhưng ta push?)
-    // Cách loop trên: i=points-1 (xa nhất) -> i=0 (gần nhất). 
-    // t = now - (points-1)*interval (Quá khứ) -> push vào đầu mảng? Không, push vào đuôi.
-    // Sửa lại logic loop cho dễ hiểu: Loop từ 0 đến points.
-    
-    const finalData = [];
     for (let i = 0; i < points; i++) {
-       // i=0 là xa nhất (quá khứ), i=points-1 là hiện tại
        const timeOffset = (points - 1 - i) * intervalMinutes * 60 * 1000;
        const t = new Date(now.getTime() - timeOffset);
        
-       let timeLabel = '';
-       if (formatType === 'hour') timeLabel = `${t.getHours()}:00`;
-       else if (formatType === 'date') timeLabel = `${t.getDate()}/${t.getMonth() + 1}`;
-       else if (formatType === 'month') timeLabel = `T${t.getMonth() + 1}`;
-       else timeLabel = `${t.getFullYear()}`;
+       // Format X-Axis (Ngắn gọn)
+       let timeLabel = range === '1D' ? `${t.getHours()}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
+       if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
 
-       // Random giá
-       const volatility = 0.03;
+       // Format Tooltip (Đầy đủ: DD/MM/YYYY HH:mm)
+       const fullTime = `${t.getDate().toString().padStart(2,'0')}/${(t.getMonth()+1).toString().padStart(2,'0')}/${t.getFullYear()} ${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}`;
+
+       const volatility = 0.025;
        price = price * (1 + (Math.random() * volatility * 2 - volatility));
-       const vol = Math.floor(Math.random() * 8000) + 1000;
+       const vol = Math.floor(Math.random() * 50000000) + 10000000;
 
-       finalData.push({
+       data.push({
          time: timeLabel,
+         fullTime: fullTime,
          price: price,
          baseline: baselinePrice,
          volume: vol
        });
     }
-    
-    // Chốt giá cuối bằng giá thực tế
-    finalData[finalData.length - 1].price = currentPrice;
-    return finalData;
+    data[data.length - 1].price = currentPrice;
+    return data;
   };
 
-  // --- 3. LOGIC GRADIENT OFFSET ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -151,7 +153,6 @@ export default function Home() {
     if (dataMax <= dataMin) return 0;
     if (baseline >= dataMax) return 0; 
     if (baseline <= dataMin) return 1; 
-
     return (dataMax - baseline) / (dataMax - dataMin);
   };
 
@@ -159,12 +160,32 @@ export default function Home() {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
 
+    // MOCK DATA ĐẦY ĐỦ (Thêm các trường Stats mới)
     const mockData = [
-      { symbol: 'BTC', name: 'Bitcoin', price: 89594.59, change_24h: 0.79, compliance_score: 98, image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png" },
-      { symbol: 'ETH', name: 'Ethereum', price: 2950.34, change_24h: -2.33, compliance_score: 95, image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png" },
-      { symbol: 'SOL', name: 'Solana', price: 128.46, change_24h: 1.64, compliance_score: 88, image: "https://assets.coingecko.com/coins/images/4128/large/solana.png" },
-      { symbol: 'BNB', name: 'BNB', price: 590.20, change_24h: 0.5, compliance_score: 92, image: "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png" },
-      { symbol: 'XRP', name: 'XRP', price: 1.92, change_24h: 2.15, compliance_score: 75, image: "https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png" },
+      { 
+        symbol: 'BTC', name: 'Bitcoin', price: 89594.59, change_24h: 0.79, compliance_score: 98, 
+        image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
+        mkt_cap: 1790000000000, vol_24h: 34180000000, fdv: 1880000000000, 
+        total_supply: 19970000, max_supply: 21000000, circ_supply: 19970000
+      },
+      { 
+        symbol: 'ETH', name: 'Ethereum', price: 2950.34, change_24h: -2.33, compliance_score: 95, 
+        image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
+        mkt_cap: 354000000000, vol_24h: 15400000000, fdv: 354000000000,
+        total_supply: 120000000, max_supply: null, circ_supply: 120000000
+      },
+      { 
+        symbol: 'SOL', name: 'Solana', price: 128.46, change_24h: 1.64, compliance_score: 88, 
+        image: "https://assets.coingecko.com/coins/images/4128/large/solana.png",
+        mkt_cap: 57000000000, vol_24h: 2100000000, fdv: 72000000000,
+        total_supply: 573000000, max_supply: null, circ_supply: 443000000
+      },
+      { 
+        symbol: 'BNB', name: 'BNB', price: 590.20, change_24h: 0.5, compliance_score: 92, 
+        image: "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png",
+        mkt_cap: 87000000000, vol_24h: 1200000000, fdv: 87000000000,
+        total_supply: 147000000, max_supply: 200000000, circ_supply: 147000000
+      },
     ];
     
     const enrichedMock = mockData.map(c => ({ ...c, chartData: generateChartData(c.price, '1D') }));
@@ -186,8 +207,6 @@ export default function Home() {
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
-  
-  // Tính max volume cho domain trục Y (Volume)
   const maxVolume = selectedCoin ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
   return (
@@ -226,7 +245,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* MARKET RADAR */}
+      {/* TICKER */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-4">
@@ -271,161 +290,239 @@ export default function Home() {
         </div>
       </div>
 
-      {/* CHART SECTION */}
+      {/* MAIN CONTENT GRID (CHART + STATS) */}
       {selectedCoin && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* Header Chart */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
-              <div className="flex items-center gap-4">
-                 {imgError[selectedCoin.symbol] ? (
-                   <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
-                     <Bitcoin className="text-orange-500" size={28} />
-                   </div>
-                 ) : (
-                   <img 
-                     src={selectedCoin.image} 
-                     alt={selectedCoin.name} 
-                     className="w-12 h-12 rounded-full border border-slate-100 p-0.5 bg-white" 
-                     onError={() => handleImgError(selectedCoin.symbol)}
-                   />
-                 )}
-                 
-                 <div>
-                   <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedCoin.name}</h2>
-                   <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-2xl font-bold ${robotoMono.className}`}>${selectedCoin.price?.toLocaleString()}</span>
-                      <span className={`text-lg font-bold ${selectedCoin.change_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ({selectedCoin.change_24h > 0 ? '+' : ''}{selectedCoin.change_24h}%)
-                      </span>
-                   </div>
-                 </div>
-              </div>
+            {/* CỘT 1+2: CHART AREA (Rộng 2/3) */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               
-              <div className="flex flex-col items-end gap-3">
-                <div className="flex gap-2">
-                  <button className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition">
-                    <ShieldAlert size={16} /> Lưu ký Tài sản
-                  </button>
-                  <button className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold transition">
-                    <FileText size={16} /> Sách trắng
-                  </button>
+              {/* Chart Header */}
+              <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
+                <div className="flex items-center gap-4">
+                   {imgError[selectedCoin.symbol] ? (
+                     <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
+                       <Bitcoin className="text-orange-500" size={28} />
+                     </div>
+                   ) : (
+                     <img 
+                       src={selectedCoin.image} 
+                       alt={selectedCoin.name} 
+                       className="w-12 h-12 rounded-full border border-slate-100 p-0.5 bg-white" 
+                       onError={() => handleImgError(selectedCoin.symbol)}
+                     />
+                   )}
+                   
+                   <div>
+                     <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedCoin.name}</h2>
+                     <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-2xl font-bold ${robotoMono.className}`}>${selectedCoin.price?.toLocaleString()}</span>
+                        <span className={`text-lg font-bold ${selectedCoin.change_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          ({selectedCoin.change_24h > 0 ? '+' : ''}{selectedCoin.change_24h}%)
+                        </span>
+                     </div>
+                   </div>
                 </div>
+                
+                <div className="flex flex-col items-end gap-3">
+                  <div className="flex gap-2">
+                    <button className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition">
+                      <ShieldAlert size={16} /> Lưu ký Tài sản
+                    </button>
+                    <button className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold transition">
+                      <FileText size={16} /> Sách trắng
+                    </button>
+                  </div>
 
-                <div className="flex gap-2">
-                    <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                      <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
-                      <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
-                    </div>
-                    <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
-                      {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
-                        <button key={range} onClick={() => handleTimeChange(range)} className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${timeRange === range ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{range}</button>
-                      ))}
-                    </div>
+                  <div className="flex gap-2">
+                      <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                        <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
+                        <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
+                      </div>
+                      <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                        {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
+                          <button key={range} onClick={() => handleTimeChange(range)} className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${timeRange === range ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{range}</button>
+                        ))}
+                      </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* CHART DISPLAY */}
-            <div className="h-[450px] w-full relative">
-               {/* Label Baseline */}
-               {chartType === 'baseline' && (
-                 <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-slate-400"></div>
-                   Giá tham chiếu: ${selectedCoin.chartData[0]?.baseline.toLocaleString()}
-                 </div>
-               )}
+              {/* Chart Display (Chiều cao giảm xuống còn 350px cho gọn) */}
+              <div className="h-[350px] w-full relative">
+                 {chartType === 'baseline' && (
+                   <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm flex items-center gap-2">
+                     <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                     Giá tham chiếu: ${selectedCoin.chartData[0]?.baseline.toLocaleString()}
+                   </div>
+                 )}
 
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                  <defs>
-                    {/* Gradient Baseline */}
-                    <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} />
-                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} />
-                    </linearGradient>
-                    <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
-                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
-                    </linearGradient>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart 
+                    data={selectedCoin.chartData} 
+                    margin={{ top: 10, right: 0, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} />
+                        <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} />
+                      </linearGradient>
+                      <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
+                        <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
+                      </linearGradient>
+                      <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
 
-                    {/* Gradient Mountain */}
-                    <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                    
+                    <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94A3B8'}} axisLine={false} tickLine={false} minTickGap={30} />
+                    
+                    <YAxis 
+                      yAxisId="price"
+                      orientation="right" 
+                      domain={['auto', 'auto']} 
+                      tick={{fontSize: 11, fill: '#64748B', fontFamily: 'monospace'}} 
+                      axisLine={false} tickLine={false} 
+                      tickFormatter={(val) => `$${val.toLocaleString()}`}
+                    />
 
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                  
-                  <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94A3B8'}} axisLine={false} tickLine={false} minTickGap={30} />
-                  
-                  {/* Trục Giá: Chiếm 80% phía trên */}
-                  <YAxis 
-                    yAxisId="price"
-                    orientation="right" 
-                    domain={['auto', 'auto']} 
-                    tick={{fontSize: 11, fill: '#64748B', fontFamily: 'monospace'}} 
-                    axisLine={false} tickLine={false} 
-                    tickFormatter={(val) => `$${val.toLocaleString()}`}
-                  />
+                    <YAxis 
+                      yAxisId="volume" 
+                      orientation="left" 
+                      domain={[0, maxVolume * 6]} // Đẩy volume xuống đáy
+                      hide 
+                    />
 
-                  {/* Trục Volume: Chiếm 20% phía dưới */}
-                  {/* Domain [0, max * 5] sẽ ép volume xuống đáy */}
-                  <YAxis 
-                    yAxisId="volume" 
-                    orientation="left" 
-                    domain={[0, maxVolume * 5]} 
-                    hide 
-                  />
+                    {/* CUSTOM TOOLTIP VỚI CROSSHAIR */}
+                    <Tooltip 
+                      content={<CustomTooltip />}
+                      cursor={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '4 4' }} 
+                    />
 
-                  <Tooltip 
-                    contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
-                    formatter={(value, name) => [
-                      value.toLocaleString(), 
-                      name === 'volume' ? 'Volume' : 'Giá'
-                    ]}
-                    labelStyle={{color: '#94A3B8'}}
-                  />
+                    <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={8} radius={[2, 2, 0, 0]} />
 
-                  {/* Volume Bar nằm ở đáy */}
-                  <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={12} radius={[2, 2, 0, 0]} />
+                    {chartType === 'baseline' && (
+                      <>
+                        <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
+                        <Area 
+                          yAxisId="price"
+                          type="monotone" 
+                          dataKey="price"
+                          baseValue={selectedCoin.chartData[0]?.baseline}
+                          stroke="url(#splitStroke)" 
+                          fill="url(#splitFill)"
+                          strokeWidth={2} 
+                          animationDuration={500}
+                          activeDot={{ r: 4, strokeWidth: 0, fill: 'white', stroke: '#2563EB' }} // Active dot clean
+                        />
+                      </>
+                    )}
 
-                  {/* BASELINE CHART (Dính vào baseline) */}
-                  {chartType === 'baseline' && (
-                    <>
-                      <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
+                    {chartType === 'mountain' && (
                       <Area 
                         yAxisId="price"
                         type="monotone" 
-                        dataKey="price"
-                        baseValue={selectedCoin.chartData[0]?.baseline} // Fix: Dính vào đường baseline
-                        stroke="url(#splitStroke)" 
-                        fill="url(#splitFill)"
+                        dataKey="price" 
+                        stroke="#2563EB" 
+                        fill="url(#colorMountain)" 
                         strokeWidth={2} 
                         animationDuration={500}
                         activeDot={{ r: 4, strokeWidth: 0 }}
                       />
-                    </>
-                  )}
+                    )}
 
-                  {/* MOUNTAIN CHART (Dính vào đáy trục giá) */}
-                  {chartType === 'mountain' && (
-                    <Area 
-                      yAxisId="price"
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke="#2563EB" 
-                      fill="url(#colorMountain)" 
-                      strokeWidth={2} 
-                      animationDuration={500}
-                      activeDot={{ r: 4, strokeWidth: 0 }}
-                    />
-                  )}
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-                </ComposedChart>
-              </ResponsiveContainer>
+            {/* CỘT 3: MARKET STATS (Bên Phải) */}
+            <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
+              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-4">
+                <Activity size={20} className="text-blue-600"/> Thống kê thị trường
+              </h3>
+
+              <div className="space-y-5">
+                {/* Market Cap */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                    Market Cap <Info size={14} />
+                  </div>
+                  <div className={`font-bold text-slate-900 ${robotoMono.className}`}>
+                    ${formatCompactNumber(selectedCoin.mkt_cap)}
+                  </div>
+                </div>
+
+                {/* Volume 24h */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                    Volume (24h) <Info size={14} />
+                  </div>
+                  <div className={`font-bold text-slate-900 ${robotoMono.className}`}>
+                     ${formatCompactNumber(selectedCoin.vol_24h)}
+                  </div>
+                </div>
+
+                {/* FDV */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                    FDV <Info size={14} />
+                  </div>
+                  <div className={`font-bold text-slate-900 ${robotoMono.className}`}>
+                    ${formatCompactNumber(selectedCoin.fdv)}
+                  </div>
+                </div>
+
+                {/* Vol / Mkt Cap */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                    Vol/Mkt Cap (24h)
+                  </div>
+                  <div className={`font-bold text-slate-900 ${robotoMono.className}`}>
+                    {((selectedCoin.vol_24h / selectedCoin.mkt_cap) * 100).toFixed(2)}%
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-100 pt-4 space-y-5">
+                   {/* Total Supply */}
+                   <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                        Total supply <Database size={14} />
+                      </div>
+                      <div className={`font-bold text-slate-900 text-xs ${robotoMono.className}`}>
+                        {formatCompactNumber(selectedCoin.total_supply)} {selectedCoin.symbol}
+                      </div>
+                   </div>
+                   
+                   {/* Max Supply */}
+                   <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                        Max. supply <Database size={14} />
+                      </div>
+                      <div className={`font-bold text-slate-900 text-xs ${robotoMono.className}`}>
+                        {selectedCoin.max_supply ? formatCompactNumber(selectedCoin.max_supply) : '∞'} {selectedCoin.symbol}
+                      </div>
+                   </div>
+
+                   {/* Circulating Supply */}
+                   <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+                         Circulating supply <CircleDollarSign size={14} />
+                      </div>
+                      <div className={`font-bold text-slate-900 text-xs ${robotoMono.className} text-right`}>
+                         {formatCompactNumber(selectedCoin.circ_supply)} {selectedCoin.symbol}
+                         <div className="w-24 h-1.5 bg-slate-100 rounded-full mt-1 ml-auto overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full" style={{width: `${(selectedCoin.circ_supply / (selectedCoin.max_supply || selectedCoin.total_supply)) * 100}%`}}></div>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
