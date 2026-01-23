@@ -18,65 +18,38 @@ const beVietnam = Be_Vietnam_Pro({
 });
 const robotoMono = Roboto_Mono({ subsets: ['latin'] });
 
-// --- 2. COMPONENT VẼ NẾN (CUSTOM CANDLE SHAPE) ---
-// Vẽ thân nến và râu nến chuẩn TradingView
+// --- 2. CUSTOM SHAPE: NẾN TRADINGVIEW (CÓ RÂU NẾN) ---
 const CustomCandleShape = (props) => {
   const { x, y, width, height, payload } = props;
   const { open, close, high, low } = payload;
   
-  // Xác định màu sắc: Tăng là Xanh, Giảm là Đỏ
+  // Xác định màu sắc: Tăng (Xanh), Giảm (Đỏ)
   const isUp = close >= open;
-  const fill = isUp ? '#22C55E' : '#EF4444'; // green-500 : red-500
-  const stroke = fill;
-
-  // Tính toán tọa độ Y cho High/Low trên biểu đồ (Recharts dùng hệ tọa độ đảo ngược cho Y)
-  // Lưu ý: props.y là điểm trên cùng của Bar (min của open/close), height là độ cao body
-  // Chúng ta cần scale lại high/low theo trục Y của chart. 
-  // Tuy nhiên, Recharts CustomShape nhận props đã được tính toán pixel. 
-  // Để vẽ râu, ta cần truy cập Axis Scale, nhưng ở đây ta dùng mẹo đơn giản:
-  // Vì Bar chỉ vẽ thân (Body), ta cần vẽ thêm đường Line cho râu.
-  // Nhưng Bar mặc định của Recharts nhận dataKey="price" (hoặc close). 
-  // Để vẽ chính xác, ta cần dùng trục Y để convert value sang pixel.
-  // Cách đơn giản nhất trong Recharts ComposedChart là vẽ Bar đè lên ErrorBar, 
-  // nhưng để tối ưu, ta vẽ thủ công dựa trên tỷ lệ pixel của body.
+  const fill = isUp ? '#22C55E' : '#EF4444'; 
   
-  // *Lưu ý quan trọng*: Để vẽ custom shape nến chính xác 100% trong Recharts rất phức tạp vì thiếu access vào scale.
-  // Giải pháp thay thế tốt nhất cho giao diện này là dùng Bar cho Body và ErrorBar cho Wick,
-  // HOẶC dùng một trick là vẽ SVG rect và line dựa trên dữ liệu đã scale (được truyền vào qua props low/high nếu config đúng).
-  // Ở đây tôi sẽ dùng config chart đặc biệt: dataKey sẽ là mảng [min, max] để Recharts tính toán pixel.
-  
-  // Tuy nhiên, để giữ code gọn và đẹp, tôi sẽ dùng Bar chart (dạng range) kết hợp logic vẽ Wick.
-  // Recharts Bar có thể nhận [min, max].
-  
-  // Bản chất props y và height của Bar đã thể hiện [min(open, close), max(open, close)].
-  // Chúng ta cần tỷ lệ để vẽ High/Low. 
-  // Do giới hạn của Recharts context trong custom shape, ta sẽ dùng 1 cách hiển thị nến đơn giản hóa nhưng đẹp:
-  // Vẽ thân nến + 2 đường line High/Low giả lập (hoặc bỏ qua râu nến nếu quá phức tạp, nhưng bạn yêu cầu giống TradingView).
-  
-  // CÁCH FIX: Sử dụng Chart type "Candle" với 2 biểu đồ lồng nhau hoặc dùng thư viện phụ. 
-  // Nhưng tôi sẽ dùng cách vẽ thủ công đường Line High-Low đi qua tâm của Bar.
-  // Để làm được, tôi cần tính tỷ lệ pixel/giá.
-  // Ratio = height / Math.abs(open - close).
-  // Y_High = y - (high - max(open, close)) * Ratio
-  // Y_Low = y + height + (min(open, close) - low) * Ratio
-  
-  const priceRange = Math.abs(open - close);
-  const pixelRatio = priceRange === 0 ? 0 : height / priceRange;
+  // Tính toán tọa độ vẽ râu nến (Line High-Low)
+  // Mẹo: Dùng tỷ lệ height/body_range để map giá sang pixel
+  const bodyRange = Math.abs(open - close);
+  const pixelRatio = bodyRange === 0 ? 0 : height / bodyRange;
   
   const maxBody = Math.max(open, close);
   const minBody = Math.min(open, close);
   
+  // Tọa độ pixel của High và Low
   const yHigh = y - (high - maxBody) * pixelRatio;
   const yLow = y + height + (minBody - low) * pixelRatio;
-  
   const xCenter = x + width / 2;
 
   return (
     <g>
       {/* Râu nến (Wick) */}
-      <line x1={xCenter} y1={yHigh} x2={xCenter} y2={yLow} stroke={stroke} strokeWidth={1.5} />
-      {/* Thân nến (Body) */}
-      <rect x={x} y={y} width={width} height={height < 1 ? 1 : height} fill={fill} />
+      <line x1={xCenter} y1={yHigh} x2={xCenter} y2={yLow} stroke={fill} strokeWidth={1.5} />
+      {/* Thân nến (Body) - Nếu open=close (Doji) thì vẽ 1 line ngang */}
+      {height === 0 ? (
+         <line x1={x} y1={y} x2={x + width} y2={y} stroke={fill} strokeWidth={2} />
+      ) : (
+         <rect x={x} y={y} width={width} height={height} fill={fill} />
+      )}
     </g>
   );
 };
@@ -91,7 +64,7 @@ export default function Home() {
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({}); // State xử lý lỗi ảnh
 
-  // --- 3. DỮ LIỆU PHÁP LÝ ---
+  // FAQ Dữ liệu (Pháp lý)
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
@@ -100,12 +73,16 @@ export default function Home() {
     {
       question: "Nhà đầu tư cá nhân trong nước giao dịch thế nào?",
       answer: "Trong giai đoạn thí điểm, nhà đầu tư trong nước PHẢI thông qua các Tổ chức cung cấp dịch vụ đã được cấp phép để đảm bảo an toàn."
+    },
+    {
+      question: "Thuế đối với tài sản mã hóa được tính như thế nào?",
+      answer: "Trong thời gian thí điểm, chính sách thuế đối với giao dịch tài sản mã hóa được áp dụng tương tự như quy định về thuế đối với chứng khoán."
     }
   ];
 
-  // --- 4. GENERATE DATA (Có High/Low cho Nến) ---
+  // LOGIC TẠO DATA CHART (Có High/Low cho Candle)
   const generateChartData = (currentPrice, range) => {
-    const pointsMap = { '1D': 48, '1W': 14, '1M': 30, '1Y': 12, 'ALL': 50 }; // Tăng điểm cho mượt
+    const pointsMap = { '1D': 48, '1W': 14, '1M': 30, '1Y': 12, 'ALL': 50 };
     const points = pointsMap[range] || 48;
     
     const data = [];
@@ -113,13 +90,13 @@ export default function Home() {
     const baselinePrice = price; 
 
     for (let i = 0; i < points; i++) {
-      const volatility = 0.02;
+      const volatility = 0.02; // Biến động
       const change = 1 + (Math.random() * volatility * 2 - volatility);
       price = price * change;
       
       const vol = Math.floor(Math.random() * 5000) + 500;
       
-      // Tạo dữ liệu nến thực tế hơn
+      // Tạo dữ liệu nến (OHLC)
       const open = price;
       const close = price * (1 + (Math.random() * 0.01 - 0.005));
       const high = Math.max(open, close) * (1 + Math.random() * 0.005);
@@ -127,22 +104,21 @@ export default function Home() {
 
       data.push({ 
         time: range === '1D' ? `${i}:00` : `T${i+1}`, 
-        price: close, // Giá dùng cho Line Chart
+        price: close, // Giá cho Line/Baseline
         baseline: baselinePrice,
         volume: vol,
-        open, close, high, low, // Dữ liệu nến
-        // Cho Bar chart nến: dataKey sẽ là mảng [min, max]
+        open, close, high, low,
+        // Dữ liệu cho Bar Candle (Body range)
         candleBody: [Math.min(open, close), Math.max(open, close)] 
       });
     }
-    // Chốt điểm cuối
+    // Chốt giá cuối
     data[data.length - 1].price = currentPrice;
     data[data.length - 1].close = currentPrice;
-    
     return data;
   };
 
-  // --- 5. LOGIC MÀU BASELINE ---
+  // LOGIC MÀU BASELINE (Xanh/Đỏ)
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -160,12 +136,13 @@ export default function Home() {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
 
-    // Mock Data chuẩn
+    // Mock Data
     const mockData = [
       { symbol: 'BTC', name: 'Bitcoin', price: 89594.59, change_24h: 0.79, compliance_score: 98, image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png" },
       { symbol: 'ETH', name: 'Ethereum', price: 2950.34, change_24h: -2.33, compliance_score: 95, image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png" },
       { symbol: 'SOL', name: 'Solana', price: 128.46, change_24h: 1.64, compliance_score: 88, image: "https://assets.coingecko.com/coins/images/4128/large/solana.png" },
       { symbol: 'BNB', name: 'BNB', price: 590.20, change_24h: 0.5, compliance_score: 92, image: "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png" },
+      { symbol: 'XRP', name: 'XRP', price: 1.92, change_24h: 2.15, compliance_score: 75, image: "https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png" },
     ];
     
     const enrichedMock = mockData.map(c => ({ ...c, chartData: generateChartData(c.price, '1D') }));
@@ -187,14 +164,13 @@ export default function Home() {
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
-
-  // Tính max volume để scale biểu đồ cột nhỏ xuống
+  // Tính max volume để scale (ép volume xuống đáy)
   const maxVolume = selectedCoin ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${beVietnam.className} pb-10`}>
       
-      {/* BANNER */}
+      {/* BANNER PHÁP LÝ */}
       {showConsent && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -227,7 +203,52 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* CHART SECTION */}
+      {/* --- PHẦN 1: TICKER / MARKET RADAR (KHÔI PHỤC THEO YÊU CẦU) --- */}
+      <div className="bg-white border-b border-slate-200 py-6">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-600"></span>
+            </span>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Thị trường Trực tiếp</h2>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {cryptos.slice(0, 5).map((coin) => {
+              const isUp = coin.change_24h >= 0;
+              const isSelected = selectedCoin?.symbol === coin.symbol;
+              const bgClass = isUp ? 'bg-[#ECFDF5] border-[#D1FAE5]' : 'bg-[#FFF1F2] border-[#FFE4E6]';
+              const textClass = isUp ? 'text-[#059669]' : 'text-[#E11D48]';
+
+              return (
+                <div 
+                  key={coin.symbol} 
+                  onClick={() => setSelectedCoin(coin)}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg flex flex-col justify-between h-28 ${
+                    isSelected ? 'ring-2 ring-blue-600 shadow-md scale-105' : ''
+                  } ${bgClass}`}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="font-black text-sm text-slate-800">{coin.symbol}</span>
+                    {isUp ? <ArrowUpRight size={20} className={textClass}/> : <ArrowDownRight size={20} className={textClass}/>}
+                  </div>
+                  <div>
+                    <div className={`text-lg font-bold tracking-tight ${robotoMono.className} text-slate-900`}>
+                      ${coin.price?.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    </div>
+                    <div className={`text-xs font-bold mt-1 ${textClass}`}>
+                      {isUp ? '+' : ''}{coin.change_24h}%
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* --- PHẦN 2: CHART SECTION (CÓ LOGO FIX, CANDLE MỚI, VOLUME TÁCH BIỆT) --- */}
       {selectedCoin && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -235,7 +256,7 @@ export default function Home() {
             {/* Header Chart */}
             <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
               <div className="flex items-center gap-4">
-                 {/* FIX LOGO: Fallback icon nếu ảnh lỗi */}
+                 {/* Xử lý Logo lỗi */}
                  {imgError[selectedCoin.symbol] ? (
                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
                      <Bitcoin className="text-orange-500" size={28} />
@@ -284,9 +305,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* MAIN CHART AREA */}
+            {/* CHART AREA */}
             <div className="h-[450px] w-full relative">
-               {/* Label Baseline */}
                {chartType === 'baseline' && (
                  <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm flex items-center gap-2">
                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
@@ -297,9 +317,8 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
-                    {/* Gradient Baseline Đẹp hơn */}
                     <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#22C55E" stopOpacity={0.15} /> {/* Giảm opacity để tinh tế */}
+                      <stop offset={gradientOffset} stopColor="#22C55E" stopOpacity={0.15} />
                       <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.15} />
                     </linearGradient>
                     <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
@@ -312,7 +331,7 @@ export default function Home() {
                   
                   <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94A3B8'}} axisLine={false} tickLine={false} minTickGap={30} />
                   
-                  {/* Trục Giá (Phải) */}
+                  {/* Trục Giá bên phải */}
                   <YAxis 
                     yAxisId="price"
                     orientation="right" 
@@ -322,12 +341,11 @@ export default function Home() {
                     tickFormatter={(val) => `$${val.toLocaleString()}`}
                   />
 
-                  {/* Trục Volume (Ẩn & Tách biệt) */}
-                  {/* Domain max = maxVolume * 6 để ép volume xuống đáy 1/6 biểu đồ */}
+                  {/* Trục Volume bên trái (Ẩn + Domain lớn để đẩy cột xuống đáy) */}
                   <YAxis 
                     yAxisId="volume" 
                     orientation="left" 
-                    domain={[0, maxVolume * 6]} 
+                    domain={[0, maxVolume * 6]} // Tỷ lệ *6 giúp volume chỉ chiếm phần nhỏ phía dưới
                     hide 
                   />
 
@@ -340,10 +358,10 @@ export default function Home() {
                     labelStyle={{color: '#94A3B8'}}
                   />
 
-                  {/* Volume Bars - Màu nhạt, nằm dưới đáy */}
+                  {/* Cột Volume nằm dưới đáy */}
                   <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={12} radius={[2, 2, 0, 0]} />
 
-                  {/* CHART LOGIC */}
+                  {/* Biểu đồ Baseline */}
                   {chartType === 'baseline' && (
                     <>
                       <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
@@ -360,12 +378,12 @@ export default function Home() {
                     </>
                   )}
 
-                  {/* CHART CANDLE (TRADINGVIEW STYLE) */}
+                  {/* Biểu đồ Candle chuẩn TradingView (CustomShape) */}
                   {chartType === 'candle' && (
                     <Bar 
                       yAxisId="price" 
-                      dataKey="candleBody" // Dùng mảng [min, max] để vẽ thân nến
-                      shape={<CustomCandleShape />} // Dùng custom shape để vẽ râu nến
+                      dataKey="candleBody" 
+                      shape={<CustomCandleShape />} // Dùng shape vẽ râu nến + thân nến
                       barSize={10}
                       animationDuration={500}
                     />
@@ -403,7 +421,6 @@ export default function Home() {
               {cryptos.map((coin) => (
                 <tr key={coin.symbol} onClick={() => setSelectedCoin(coin)} className={`hover:bg-slate-50 cursor-pointer transition ${selectedCoin?.symbol === coin.symbol ? 'bg-blue-50/50' : ''}`}>
                   <td className="px-6 py-4 font-medium text-slate-900 flex items-center gap-3">
-                     {/* FIX LOGO: Fallback icon trong bảng */}
                      {imgError[coin.symbol] ? (
                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200"><Bitcoin size={16} className="text-slate-400"/></div>
                      ) : (
@@ -422,10 +439,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* FOOTER & FAQ GIỮ NGUYÊN ... */}
+      {/* FAQ SECTION */}
       <section className="max-w-4xl mx-auto px-4 mt-16 mb-16">
-         {/* ... (Code FAQ cũ) */}
-         <div className="text-center mb-8">
+        <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
             <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
           </h2>
@@ -444,9 +460,42 @@ export default function Home() {
         </div>
       </section>
 
+      {/* --- PHẦN 3: FOOTER NGUYÊN BẢN (KHÔI PHỤC ĐẦY ĐỦ) --- */}
       <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 text-center text-[10px] text-slate-500">
-          <p>&copy; 2026 VNMetrics. Dữ liệu chỉ mang tính chất tham khảo.</p>
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center gap-2 mb-6">
+             <ShieldAlert className="text-yellow-500" size={24} />
+             <h3 className="font-bold text-white uppercase tracking-wider">Miễn trừ trách nhiệm quan trọng</h3>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-xs leading-relaxed text-justify">
+            <div>
+              <p className="mb-4">
+                <strong>THÔNG TIN THAM KHẢO:</strong> Toàn bộ nội dung được cung cấp trên website này, các trang liên kết, ứng dụng, diễn đàn và các nền tảng mạng xã hội khác ("Trang") chỉ nhằm mục đích cung cấp thông tin chung và được thu thập từ các nguồn bên thứ ba.
+              </p>
+              <p className="mb-4">
+                <strong>KHÔNG ĐẢM BẢO TÍNH CHÍNH XÁC:</strong> Chúng tôi không đưa ra bất kỳ bảo đảm nào dưới bất kỳ hình thức nào liên quan đến nội dung của chúng tôi, bao gồm nhưng không giới hạn ở sự chính xác và tính cập nhật.
+              </p>
+              <p>
+                <strong>KHÔNG PHẢI LỜI KHUYÊN:</strong> Không có phần nào trong nội dung mà chúng tôi cung cấp cấu thành lời khuyên tài chính, lời khuyên pháp lý hoặc bất kỳ hình thức tư vấn nào khác dành riêng cho sự tin cậy của bạn cho bất kỳ mục đích nào.
+              </p>
+            </div>
+            <div>
+               <p className="mb-4">
+                <strong>TỰ CHỊU TRÁCH NHIỆM:</strong> Việc sử dụng hoặc phụ thuộc vào nội dung của chúng tôi hoàn toàn do bạn tự chịu rủi ro và theo quyết định của riêng bạn. Bạn nên tiến hành nghiên cứu, rà soát, phân tích và xác minh nội dung của chúng tôi trước khi dựa vào chúng.
+               </p>
+               <p className="mb-4">
+                <strong>RỦI RO CAO:</strong> Giao dịch là một hoạt động có rủi ro cao có thể dẫn đến thua lỗ lớn, do đó vui lòng tham khảo ý kiến cố vấn tài chính của bạn trước khi đưa ra bất kỳ quyết định nào.
+               </p>
+               <p className="text-white font-bold border-l-2 border-yellow-500 pl-3">
+                Không có nội dung nào trên Trang của chúng tôi được hiểu là sự chào mời hoặc đề nghị mua bán.
+               </p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500">
+            <p>&copy; 2026 VNMetrics Enterprise Data Ltd. All rights reserved.</p>
+          </div>
         </div>
       </footer>
     </div>
