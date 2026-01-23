@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
-  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
+  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  BarChart2, Lock, Eye, Bitcoin, Info, Activity, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ServerCrash, RefreshCw
+  BarChart2, Lock, Eye, Bitcoin, Info, Activity, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ServerCrash
 } from 'lucide-react';
 
 // --- CẤU HÌNH ---
@@ -52,7 +52,7 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCHERS (DÙNG PUBLIC CORS PROXY - FIX TRIỆT ĐỂ) ---
+  // --- FETCHERS ---
   const fetchBinanceChart = async (coinId, range) => {
     try {
       const symbol = BINANCE_PAIR_MAP[coinId];
@@ -67,13 +67,10 @@ export default function Home() {
         default: interval = '1h'; limit = 24;
       }
 
-      // Gọi trực tiếp Binance (Thường OK từ Client) - Nếu lỗi sẽ thử Proxy
-      let res = await fetch(`https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+      // Gọi qua Proxy của chính mình (đã sửa Header Referer thành trade)
+      const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
       
-      // Fallback: Nếu Binance chặn, dùng Proxy Public
-      if (!res.ok) {
-         res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`)}`);
-      }
+      if (!res.ok) return [];
       
       const rawData = await res.json();
       if (!Array.isArray(rawData)) return [];
@@ -88,7 +85,7 @@ export default function Home() {
             price: parseFloat(c[4]), volume: parseFloat(c[5]) * parseFloat(c[4]), baseline
          };
       });
-    } catch (e) { console.error(e); return []; }
+    } catch (e) { return []; }
   };
 
   const fetchAllData = async () => {
@@ -110,25 +107,20 @@ export default function Home() {
       if (!selectedCoin) setSelectedCoin(processed[0]);
     } catch (e) { newErrors.market = e.message; }
 
-    // 2. ETF (CoinGlass qua Public Proxy - FIX LỖI ẢNH BẠN GỬI)
+    // 2. ETF (CoinGlass qua Proxy)
     try {
-       // Dùng allorigins.win để bypass CORS của Coinglass
-       const etfRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent('https://capi.coinglass.com/api/etf/flow')}`);
+       const etfRes = await fetch('/api/proxy?type=coinglass');
+       if (!etfRes.ok) throw new Error("ETF Proxy Error");
        const etfJson = await etfRes.json();
        
        if (etfJson.data && Array.isArray(etfJson.data)) {
           const targetTickers = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC', 'BTCO'];
           const filtered = etfJson.data.filter(item => targetTickers.includes(item.ticker));
           setEtfs(filtered);
-       } else {
-          throw new Error("Empty Data");
-       }
-    } catch (e) {
-       console.error("ETF Error:", e);
-       newErrors.etf = "Không thể lấy dữ liệu CoinGlass (Chặn Proxy Public)";
-    }
+       } 
+    } catch (e) { newErrors.etf = "Lỗi kết nối dữ liệu."; }
 
-    // 3. DEX (DefiLlama Public - Thường không bị chặn)
+    // 3. DEX (DefiLlama Public)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
@@ -207,7 +199,7 @@ export default function Home() {
             <span className="flex items-center gap-1"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold ml-1">${formatCompact(globalStats.tvl)}</span></span>
             <span className="flex items-center gap-1 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
          </div>
-         <div className="flex items-center gap-2"><span>Data Source: Binance, DefiLlama</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+         <div className="flex items-center gap-2"><span>Real Data (Server Proxy)</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
 
       {/* HEADER */}
@@ -309,17 +301,17 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB (DATA FROM COINGLASS VIA PUBLIC PROXY) */}
+      {/* ETF TAB */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass)</h3>
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass Proxy)</h3>
               
               {errors.etf ? (
                  <div className="text-center py-10">
                     <ServerCrash size={48} className="mx-auto text-red-300 mb-3"/>
                     <p className="text-red-500 font-bold">Lỗi tải dữ liệu CoinGlass</p>
-                    <p className="text-sm text-slate-400 mt-2">Dữ liệu hiện không khả dụng qua Public Proxy.</p>
+                    <p className="text-sm text-slate-400 mt-2">Vui lòng kiểm tra lại Proxy.</p>
                  </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -333,7 +325,7 @@ export default function Home() {
                           <td className="px-6 py-4 font-bold flex items-center gap-2"><div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center border text-[10px]">{etf.ticker[0]}</div>{etf.ticker}</td>
                           <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
                           <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
-                          <td className={`px-6 py-4 text-right font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
                           <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                              {etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}
                           </td>
@@ -375,9 +367,40 @@ export default function Home() {
         </div>
       )}
 
-      <footer className="bg-white border-t mt-16 pt-10 pb-6 text-slate-600">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
-           <p>&copy; 2026 VNMetrics. All rights reserved. Data: CoinGlass, Binance, CoinGecko.</p>
+      <footer className="bg-white border-t border-slate-200 mt-16 pt-10 pb-6 text-slate-600">
+        <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+           <div className="col-span-1 md:col-span-2">
+              <div className="flex items-center gap-2 font-extrabold text-xl text-slate-900 mb-4">
+                 <Zap size={24} className="text-blue-600"/> VNMetrics
+              </div>
+              <p className="text-sm leading-relaxed text-slate-500 pr-4 text-justify">
+                 VNMetrics là nền tảng dữ liệu tài sản số chuyên sâu, cung cấp góc nhìn đa chiều từ thị trường Spot, Dòng tiền ETF đến Tài chính phi tập trung (DeFi). Chúng tôi cam kết minh bạch nguồn dữ liệu và tuân thủ các quy định pháp luật hiện hành tại Việt Nam.
+              </p>
+           </div>
+           
+           <div>
+              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Dữ liệu & Đối tác</h4>
+              <ul className="space-y-2 text-sm text-slate-500">
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div> CoinGecko (Market Data)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></div> Binance (Realtime Chart)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div> DefiLlama (On-chain & DEX)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> CoinGlass (ETF Flows)</li>
+              </ul>
+           </div>
+
+           <div>
+              <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Pháp lý</h4>
+              <ul className="space-y-2 text-sm text-slate-500">
+                 <li><a href="#" className="hover:text-blue-600 transition">Điều khoản sử dụng</a></li>
+                 <li><a href="#" className="hover:text-blue-600 transition">Chính sách bảo mật</a></li>
+                 <li><a href="#" className="hover:text-blue-600 transition">Miễn trừ trách nhiệm</a></li>
+              </ul>
+           </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-400">
+           <p>&copy; 2026 VNMetrics. All rights reserved.</p>
+           <p className="flex items-center gap-1"><ShieldAlert size={12}/> Tuân thủ Nghị quyết 05/2025/NQ-CP về thí điểm quản lý tài sản số.</p>
         </div>
       </footer>
     </div>
