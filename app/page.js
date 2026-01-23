@@ -7,30 +7,35 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe
+  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe, TrendingUp, AlertTriangle, Clock
 } from 'lucide-react';
 
 // --- 1. CẤU HÌNH FONT ---
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
-// --- 2. HÀM FORMAT ---
+// --- 2. HÀM FORMAT & UTILS ---
 const formatCompactNumber = (number) => {
-  if (!number) return 'N/A';
+  if (number === null || number === undefined) return 'N/A';
   if (number >= 1.0e+12) return (number / 1.0e+12).toFixed(2) + "T";
   if (number >= 1.0e+9) return (number / 1.0e+9).toFixed(2) + "B";
   if (number >= 1.0e+6) return (number / 1.0e+6).toFixed(2) + "M";
   return number.toLocaleString();
 };
 
-// --- 3. CUSTOM TOOLTIP ---
+const formatPrice = (price) => {
+  if (!price) return '0.00';
+  return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+};
+
+// --- 3. CUSTOM TOOLTIP (Pro Dark Mode) ---
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-[#1A1D29] border border-[#2B313F] p-3 rounded-lg shadow-2xl text-xs min-w-[200px] z-50 backdrop-blur-md">
-        <div className="text-slate-400 mb-2 font-medium border-b border-[#2B313F] pb-2">
-           {data.fullTime}
+      <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-2xl text-xs min-w-[220px] z-50 backdrop-blur-md">
+        <div className="text-slate-400 mb-2 font-medium border-b border-[#2B313F] pb-2 flex items-center gap-2">
+           <Clock size={12}/> {data.fullTime}
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-6">
@@ -39,19 +44,20 @@ const CustomTooltip = ({ active, payload, label }) => {
                <span className="text-slate-300 font-medium">Price</span>
              </div>
              <span className={`font-bold ${jetbrainsMono.className} text-white text-[13px]`}>
-               ${data.price.toLocaleString(undefined, {minimumFractionDigits: 2})}
+               ${formatPrice(data.price)}
              </span>
           </div>
-          {/* DefiLlama Chart không có Volume, hiển thị volume giả lập để UI cân đối */}
-          <div className="flex items-center justify-between gap-6">
-             <div className="flex items-center gap-2">
-               <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
-               <span className="text-slate-300 font-medium">Vol (Est.)</span>
-             </div>
-             <span className={`font-bold ${jetbrainsMono.className} text-slate-200 text-[13px]`}>
-               ${formatCompactNumber(data.volume)}
-             </span>
-          </div>
+          {data.volume > 0 && (
+            <div className="flex items-center justify-between gap-6">
+               <div className="flex items-center gap-2">
+                 <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
+                 <span className="text-slate-300 font-medium">Vol (Est.)</span>
+               </div>
+               <span className={`font-bold ${jetbrainsMono.className} text-slate-200 text-[13px]`}>
+                 ${formatCompactNumber(data.volume)}
+               </span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -59,9 +65,53 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
+// --- 4. FETCH CHART TỪ DEFILLAMA (KHÔNG FAKE DATA) ---
+const fetchDefiLlamaChart = async (coinDefiId, range) => {
+  try {
+    let span = 2; let period = '24h';
+    // Mapping range chuẩn DefiLlama
+    if (range === '1W') { span = 6; period = '1w'; }
+    if (range === '1M') { span = 12; period = '1m'; }
+    if (range === '1Y') { span = 24; period = '1y'; }
+    if (range === 'ALL') { span = 24; period = '1y'; }
+
+    const res = await fetch(`https://coins.llama.fi/chart/${coinDefiId}?start=${Math.floor(Date.now()/1000) - (range === '1D' ? 86400 : 31536000)}&span=${span}&period=${period}`);
+    
+    if (!res.ok) return []; // API lỗi trả về rỗng
+
+    const json = await res.json();
+
+    if (json && json.coins && json.coins[coinDefiId] && json.coins[coinDefiId].length > 0) {
+      const rawPoints = json.coins[coinDefiId];
+      // Lấy baseline là giá đầu tiên
+      const baseline = rawPoints[0].price;
+
+      return rawPoints.map(p => {
+         const t = new Date(p.timestamp * 1000);
+         let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
+         if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
+         const fullTime = `${t.getDate().toString().padStart(2,'0')}/${(t.getMonth()+1).toString().padStart(2,'0')}/${t.getFullYear()} ${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}`;
+         
+         return {
+           time: timeLabel,
+           fullTime: fullTime,
+           price: p.price,
+           baseline: baseline,
+           volume: 0 // DefiLlama chart API không có volume, để 0, KHÔNG random fake
+         };
+      });
+    }
+    return []; // Không có data
+  } catch (e) {
+    console.error("Chart Fetch Error:", e);
+    return []; // Lỗi mạng trả về rỗng
+  }
+};
+
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
   const [timeRange, setTimeRange] = useState('1D');
@@ -70,88 +120,122 @@ export default function Home() {
   const [imgError, setImgError] = useState({});
   const [globalStats, setGlobalStats] = useState({ tvl: 0, vol24h: 0 });
 
-  // --- 4. HÀM TẠO MOCK DATA THÔNG MINH (FALLBACK KHI API CHART LỖI) ---
-  const generateFallbackChart = (currentPrice, range) => {
-    let points = 48;
-    let intervalMinutes = 30;
-    switch(range) {
-      case '1D': points = 48; intervalMinutes = 30; break;
-      case '1W': points = 56; intervalMinutes = 180; break;
-      case '1M': points = 60; intervalMinutes = 720; break;
-      case '1Y': points = 52; intervalMinutes = 10080; break;
-      default: points = 48;
+  // --- 5. DATA FETCHING (COINGECKO + DEFILLAMA) ---
+  useEffect(() => {
+    const hasConsented = localStorage.getItem('vnmetrics_consent');
+    if (!hasConsented) setShowConsent(true);
+
+    const initData = async () => {
+      try {
+        setLoading(true);
+        // A. Lấy Global TVL từ DefiLlama (Uy tín)
+        const chainsRes = await fetch('https://api.llama.fi/v2/chains');
+        const chainsData = await chainsRes.json();
+        const totalTvl = chainsData.reduce((acc, curr) => acc + (curr.tvl || 0), 0);
+        setGlobalStats({ tvl: totalTvl, vol24h: 0 });
+
+        // B. Lấy Market Data từ CoinGecko (Giá, Vol, Mcap, ATH, ATL)
+        // Lưu ý: CoinGecko Public API giới hạn rate limit. Nếu lỗi sẽ catch bên dưới.
+        const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron&order=market_cap_desc&per_page=8&page=1&sparkline=false');
+        
+        if (!cgRes.ok) throw new Error("CoinGecko API Limit/Error");
+        
+        const cgData = await cgRes.json();
+
+        // C. Map dữ liệu & Lấy Chart ban đầu cho coin top 1
+        // ID Mapping cho DefiLlama Chart
+        const defiLlamaIds = {
+          'bitcoin': 'coingecko:bitcoin',
+          'ethereum': 'coingecko:ethereum',
+          'solana': 'coingecko:solana',
+          'binancecoin': 'coingecko:binancecoin',
+          'ripple': 'coingecko:ripple',
+          'cardano': 'coingecko:cardano',
+          'dogecoin': 'coingecko:dogecoin',
+          'tron': 'coingecko:tron'
+        };
+
+        // Xử lý từng coin
+        const processed = await Promise.all(cgData.map(async (coin, index) => {
+           const defiId = defiLlamaIds[coin.id] || `coingecko:${coin.id}`;
+           
+           // Chỉ load chart cho coin đầu tiên để tiết kiệm request ban đầu
+           let chart = [];
+           if (index === 0) {
+             chart = await fetchDefiLlamaChart(defiId, '1D');
+           }
+
+           // Lấy TVL riêng nếu có (từ mảng chainsData)
+           const chainInfo = chainsData.find(c => c.name.toLowerCase() === coin.name.toLowerCase());
+           const tvl = chainInfo ? chainInfo.tvl : 0;
+
+           return {
+             id: coin.id,
+             defiId: defiId, // ID dùng để gọi chart
+             symbol: coin.symbol.toUpperCase(),
+             name: coin.name,
+             image: coin.image,
+             current_price: coin.current_price,
+             market_cap: coin.market_cap,
+             market_cap_rank: coin.market_cap_rank,
+             fully_diluted_valuation: coin.fully_diluted_valuation,
+             total_volume: coin.total_volume,
+             high_24h: coin.high_24h,
+             low_24h: coin.low_24h,
+             price_change_percentage_24h: coin.price_change_percentage_24h,
+             circulating_supply: coin.circulating_supply,
+             total_supply: coin.total_supply,
+             max_supply: coin.max_supply,
+             ath: coin.ath,
+             ath_change_percentage: coin.ath_change_percentage,
+             atl: coin.atl,
+             atl_change_percentage: coin.atl_change_percentage,
+             tvl: tvl,
+             compliance_score: 90 + (index % 10), // Điểm giả định vì API không có
+             chartData: chart
+           };
+        }));
+
+        setCryptos(processed);
+        setSelectedCoin(processed[0]);
+        setApiError(false);
+
+      } catch (err) {
+        console.error("Data Init Error:", err);
+        setApiError(true); // Hiển thị lỗi UI nếu không lấy được data
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initData();
+  }, []);
+
+  // --- HANDLERS ---
+  const handleSelectCoin = async (coin) => {
+    // Nếu chưa có chart data thì fetch
+    if (!coin.chartData || coin.chartData.length === 0) {
+      const newChart = await fetchDefiLlamaChart(coin.defiId, timeRange);
+      const updatedCoin = { ...coin, chartData: newChart };
+      setSelectedCoin(updatedCoin);
+      setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
+    } else {
+      setSelectedCoin(coin);
     }
-    
-    const data = [];
-    const now = new Date();
-    // Tạo baseline
-    let price = currentPrice * (range === '1D' ? 0.98 : 0.85); 
-    const baselinePrice = price; 
-
-    for (let i = 0; i < points; i++) {
-       const timeOffset = (points - 1 - i) * intervalMinutes * 60 * 1000;
-       const t = new Date(now.getTime() - timeOffset);
-       
-       let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
-       if (range === '1Y') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
-       const fullTime = `${t.getDate()}/${t.getMonth()+1}/${t.getFullYear()} ${t.getHours()}:${t.getMinutes()}`;
-
-       // Random walk logic
-       const volatility = 0.02;
-       price = price * (1 + (Math.random() * volatility * 2 - volatility));
-       // Pull to real price at end
-       const progress = i / points;
-       if (progress > 0.8) price = price * (1 - progress * 0.1) + currentPrice * (progress * 0.1);
-
-       data.push({
-         time: timeLabel,
-         fullTime: fullTime,
-         price: price,
-         baseline: baselinePrice,
-         volume: Math.floor(Math.random() * 50000000) + 5000000
-       });
-    }
-    data[data.length - 1].price = currentPrice;
-    return data;
   };
 
-  // --- 5. FETCH DEFILLAMA CHART ---
-  const fetchDefiLlamaChart = async (coinDefiId, range, currentPrice) => {
-    try {
-      // Map range sang DefiLlama params
-      let span = 2; let period = '24h';
-      if (range === '1W') { span = 6; period = '1w'; }
-      if (range === '1M') { span = 12; period = '1m'; }
-      if (range === '1Y') { span = 24; period = '1y'; }
-
-      // Endpoint: https://coins.llama.fi/chart/{coins}
-      const res = await fetch(`https://coins.llama.fi/chart/${coinDefiId}?start=${Math.floor(Date.now()/1000) - (range === '1D' ? 86400 : 31536000)}&span=${span}&period=${period}`);
-      const json = await res.json();
-
-      if (json && json.coins && json.coins[coinDefiId] && json.coins[coinDefiId].length > 0) {
-        const rawPoints = json.coins[coinDefiId];
-        const baseline = rawPoints[0].price;
-
-        return rawPoints.map(p => {
-           const t = new Date(p.timestamp * 1000);
-           let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
-           if (range === '1Y') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
-           const fullTime = `${t.getDate()}/${t.getMonth()+1}/${t.getFullYear()} ${t.getHours()}:${t.getMinutes()}`;
-           
-           return {
-             time: timeLabel,
-             fullTime: fullTime,
-             price: p.price,
-             baseline: baseline,
-             volume: Math.floor(Math.random() * 10000000) // Mock volume vì chart API k có
-           };
-        });
-      }
-    } catch (e) {
-      console.warn("Chart API Error, using fallback", e);
+  const handleTimeChange = async (range) => {
+    setTimeRange(range);
+    if (selectedCoin) {
+      const newChart = await fetchDefiLlamaChart(selectedCoin.defiId, range);
+      const updatedCoin = { ...selectedCoin, chartData: newChart };
+      setSelectedCoin(updatedCoin);
+      setCryptos(prev => prev.map(c => c.id === selectedCoin.id ? updatedCoin : c));
     }
-    // Nếu lỗi hoặc rỗng -> dùng Mock để UI không vỡ
-    return generateFallbackChart(currentPrice, range);
+  };
+
+  const handleImgError = (symbol) => {
+    setImgError(prev => ({ ...prev, [symbol]: true }));
   };
 
   const getGradientOffset = (data) => {
@@ -165,122 +249,9 @@ export default function Home() {
     return (dataMax - baseline) / (dataMax - dataMin);
   };
 
-  // --- 6. MAIN DATA FETCHING ---
-  useEffect(() => {
-    const hasConsented = localStorage.getItem('vnmetrics_consent');
-    if (!hasConsented) setShowConsent(true);
-
-    const initData = async () => {
-      try {
-        // 1. Lấy thông tin Chain TVL (Để lấy TVL chuẩn cho ETH, BSC, SOL)
-        // API: https://api.llama.fi/v2/chains
-        const chainsRes = await fetch('https://api.llama.fi/v2/chains');
-        const chainsData = await chainsRes.json();
-        
-        // Helper lấy TVL theo chain name
-        const getChainTvl = (name) => {
-          const chain = chainsData.find(c => c.name.toLowerCase() === name.toLowerCase());
-          return chain ? chain.tvl : 0;
-        };
-        
-        // Tính tổng TVL toàn cầu
-        const totalTvl = chainsData.reduce((acc, curr) => acc + (curr.tvl || 0), 0);
-        setGlobalStats({ tvl: totalTvl, vol24h: totalTvl * 0.15 }); // Ước lượng vol
-
-        // 2. Định nghĩa danh sách Coin cần lấy
-        const coinsList = [
-          { id: 'coingecko:bitcoin', symbol: 'BTC', name: 'Bitcoin', chainName: null, imgId: '1' },
-          { id: 'coingecko:ethereum', symbol: 'ETH', name: 'Ethereum', chainName: 'Ethereum', imgId: '279' },
-          { id: 'coingecko:solana', symbol: 'SOL', name: 'Solana', chainName: 'Solana', imgId: '4128' },
-          { id: 'coingecko:binancecoin', symbol: 'BNB', name: 'BNB', chainName: 'Binance', imgId: '825' },
-          { id: 'coingecko:ripple', symbol: 'XRP', name: 'XRP', chainName: null, imgId: '44' },
-        ];
-        
-        const ids = coinsList.map(c => c.id).join(',');
-
-        // 3. Lấy Giá hiện tại + % Biến động (Từ DefiLlama Coins API)
-        // API: https://coins.llama.fi/prices/current/{ids}?searchWidth=4h
-        const pricesRes = await fetch(`https://coins.llama.fi/prices/current/${ids}?searchWidth=4h`);
-        const pricesData = await pricesRes.json();
-
-        // 4. Xử lý dữ liệu từng coin
-        const processed = await Promise.all(coinsList.map(async (c) => {
-           const pData = pricesData.coins[c.id];
-           const currentPrice = pData?.price || 0;
-           
-           // Fetch Chart đầu tiên (1D)
-           const chart = await fetchDefiLlamaChart(c.id, '1D', currentPrice);
-           
-           // Lấy TVL (Nếu là coin nền tảng như ETH, SOL thì lấy TVL của chain)
-           // Nếu là BTC thì lấy TVL giả lập hoặc 0 (vì BTC chain k có smart contract TVL kiểu Defi)
-           const tvl = c.chainName ? getChainTvl(c.chainName) : 0;
-           
-           // Market Cap & Vol (DefiLlama Coins API k trả về, ta tính ước lượng từ giá thật)
-           // Supply ước lượng: BTC ~19.7M, ETH ~120M, SOL ~460M, BNB ~147M, XRP ~55B
-           let supply = 0;
-           if(c.symbol === 'BTC') supply = 19700000;
-           if(c.symbol === 'ETH') supply = 120000000;
-           if(c.symbol === 'SOL') supply = 460000000;
-           if(c.symbol === 'BNB') supply = 147000000;
-           if(c.symbol === 'XRP') supply = 55000000000;
-           
-           const mcap = currentPrice * supply;
-
-           return {
-             ...c,
-             price: currentPrice,
-             change_24h: (Math.random() * 5 - 2.5), // DefiLlama free endpoint này k có % change, random nhẹ để demo
-             mkt_cap: mcap,
-             vol_24h: mcap * 0.05, // Ước lượng vol = 5% cap
-             tvl: tvl,
-             fdv: mcap * 1.1, // FDV > Mcap xíu
-             circ_supply: supply,
-             total_supply: supply * 1.1,
-             compliance_score: Math.floor(Math.random() * 15) + 85,
-             image: `https://assets.coingecko.com/coins/images/${c.imgId}/large/${c.name.toLowerCase()}.png`,
-             chartData: chart
-           };
-        }));
-
-        setCryptos(processed);
-        setSelectedCoin(processed[0]);
-
-      } catch (err) {
-        console.error("Main Fetch Error", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initData();
-  }, []);
-
-  // --- HANDLERS ---
-  const handleSelectCoin = async (coin) => {
-    // Khi chọn coin khác, fetch lại chart mới
-    const newChart = await fetchDefiLlamaChart(coin.id, timeRange, coin.price);
-    const updatedCoin = { ...coin, chartData: newChart };
-    setSelectedCoin(updatedCoin);
-    // Update list để highlight
-    setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
-  };
-
-  const handleTimeChange = async (range) => {
-    setTimeRange(range);
-    if (selectedCoin) {
-      const newChart = await fetchDefiLlamaChart(selectedCoin.id, range, selectedCoin.price);
-      setSelectedCoin({ ...selectedCoin, chartData: newChart });
-    }
-  };
-
-  const handleImgError = (symbol) => {
-    setImgError(prev => ({ ...prev, [symbol]: true }));
-  };
-
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
-  const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
-
-  // Dữ liệu pháp lý
+  
+  // Dữ liệu pháp lý (ĐẦY ĐỦ)
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
@@ -311,26 +282,12 @@ export default function Home() {
               <span className="font-bold text-slate-900 flex items-center gap-2 mb-1">
                 <ShieldAlert size={18} className="text-blue-600"/> Cảnh báo Pháp lý
               </span>
-              VNMetrics tuân thủ Nghị quyết 05/2025/NQ-CP. Dữ liệu chỉ mang tính tham khảo.
+              VNMetrics hoạt động theo Nghị quyết 05/2025/NQ-CP. Chúng tôi không cung cấp dịch vụ giao dịch trực tiếp. Dữ liệu chỉ mang tính tham khảo.
             </div>
             <button onClick={() => {localStorage.setItem('vnmetrics_consent', 'true'); setShowConsent(false)}} className="bg-slate-900 text-white font-bold py-2.5 px-6 rounded-lg hover:bg-slate-800 transition">Tôi Đã Hiểu</button>
           </div>
         </div>
       )}
-
-      {/* TOP GLOBAL BAR */}
-      <div className="bg-slate-900 text-slate-400 text-[11px] py-1.5 border-b border-slate-800">
-         <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
-            <div className="flex gap-4">
-               <span>Global DeFi TVL: <span className="text-blue-400 font-bold">${formatCompactNumber(globalStats.tvl)}</span></span>
-               <span>Vol 24h: <span className="text-white font-bold">${formatCompactNumber(globalStats.vol24h)}</span></span>
-            </div>
-            <div className="flex gap-2">
-               <span>DefiLlama API Connected</span>
-               <div className="w-2 h-2 rounded-full bg-green-500 mt-1"></div>
-            </div>
-         </div>
-      </div>
 
       {/* HEADER */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)]">
@@ -350,6 +307,13 @@ export default function Home() {
         </div>
       </nav>
 
+      {/* WARNING NẾU API LỖI */}
+      {apiError && (
+        <div className="bg-red-50 text-red-700 px-4 py-2 text-center text-sm font-bold border-b border-red-100 flex items-center justify-center gap-2">
+           <AlertTriangle size={16}/> Không thể kết nối API CoinGecko (Rate Limited). Vui lòng thử lại sau ít phút.
+        </div>
+      )}
+
       {/* TICKER */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
@@ -359,39 +323,44 @@ export default function Home() {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-600"></span>
             </span>
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Thị trường Trực tiếp (DefiLlama Data)
+              Thị trường Trực tiếp (Global)
             </h2>
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {cryptos.slice(0, 5).map((coin) => {
-              const isUp = coin.change_24h >= 0;
-              const isSelected = selectedCoin?.id === coin.id;
-              return (
-                <div 
-                  key={coin.id} 
-                  onClick={() => handleSelectCoin(coin)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 hover:-translate-y-1 flex flex-col justify-between h-28 ${
-                    isSelected 
-                      ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/30 shadow-md' 
-                      : 'border-slate-200 hover:shadow-lg bg-white'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-sm text-slate-700">{coin.symbol}</span>
-                    {isUp ? <ArrowUpRight size={18} className="text-green-500"/> : <ArrowDownRight size={18} className="text-red-500"/>}
-                  </div>
-                  <div>
-                    <div className={`text-lg font-bold tracking-tight ${jetbrainsMono.className} text-slate-900`}>
-                      ${coin.price?.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+            {loading ? (
+               // Skeleton Loading
+               Array(5).fill(0).map((_, i) => <div key={i} className="h-28 bg-slate-100 rounded-xl animate-pulse"></div>)
+            ) : (
+              cryptos.slice(0, 5).map((coin) => {
+                const isUp = coin.price_change_percentage_24h >= 0;
+                const isSelected = selectedCoin?.id === coin.id;
+                return (
+                  <div 
+                    key={coin.id} 
+                    onClick={() => handleSelectCoin(coin)}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 hover:-translate-y-1 flex flex-col justify-between h-28 ${
+                      isSelected 
+                        ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/30 shadow-md' 
+                        : 'border-slate-200 hover:shadow-lg bg-white'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-sm text-slate-700">{coin.symbol}</span>
+                      {isUp ? <ArrowUpRight size={18} className="text-green-500"/> : <ArrowDownRight size={18} className="text-red-500"/>}
                     </div>
-                    <div className={`text-xs font-bold mt-1 ${isUp ? 'text-green-600' : 'text-red-600'}`}>
-                      {isUp ? '+' : ''}{coin.change_24h?.toFixed(2)}%
+                    <div>
+                      <div className={`text-lg font-bold tracking-tight ${jetbrainsMono.className} text-slate-900`}>
+                        ${formatPrice(coin.current_price)}
+                      </div>
+                      <div className={`text-xs font-bold mt-1 ${isUp ? 'text-green-600' : 'text-red-600'}`}>
+                        {isUp ? '+' : ''}{coin.price_change_percentage_24h?.toFixed(2)}%
+                      </div>
                     </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
         </div>
       </div>
@@ -402,7 +371,7 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* CỘT TRÁI: CHART */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full">
               <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
                 <div className="flex items-center gap-4">
                    {imgError[selectedCoin.symbol] ? (
@@ -414,10 +383,10 @@ export default function Home() {
                      <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedCoin.name}</h2>
                      <div className="flex items-center gap-3 mt-1">
                         <span className={`text-2xl font-bold ${jetbrainsMono.className} text-slate-900`}>
-                          ${selectedCoin.price?.toLocaleString()}
+                          ${formatPrice(selectedCoin.current_price)}
                         </span>
-                        <span className={`px-2 py-0.5 rounded text-sm font-bold ${selectedCoin.change_24h >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {selectedCoin.change_24h?.toFixed(2)}%
+                        <span className={`px-2 py-0.5 rounded text-sm font-bold ${selectedCoin.price_change_percentage_24h >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {selectedCoin.price_change_percentage_24h?.toFixed(2)}%
                         </span>
                      </div>
                    </div>
@@ -446,101 +415,159 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="h-[380px] w-full relative">
-                 {/* Giá tham chiếu */}
-                 {chartType === 'baseline' && selectedCoin.chartData[0] && (
-                   <div className="absolute top-2 left-2 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded text-[10px] font-semibold text-slate-400 border border-slate-200 flex items-center gap-2">
-                     <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
-                     Open: ${selectedCoin.chartData[0].baseline.toLocaleString()}
-                   </div>
+              <div className="h-[400px] w-full relative flex-grow min-h-[400px]">
+                 {/* Xử lý trường hợp KHÔNG có dữ liệu */}
+                 {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                      <Activity size={48} className="text-slate-300 mb-2"/>
+                      <p className="text-slate-500 font-bold">No Chart Data Available</p>
+                      <p className="text-xs text-slate-400 mt-1">DefiLlama API might be unavailable for this pair/range.</p>
+                    </div>
+                 ) : (
+                    <>
+                      {chartType === 'baseline' && (
+                        <div className="absolute top-2 left-2 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded text-[10px] font-semibold text-slate-400 border border-slate-200 flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+                          Ref: ${formatPrice(selectedCoin.chartData[0].baseline)}
+                        </div>
+                      )}
+                      
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} />
+                              <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} />
+                            </linearGradient>
+                            <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
+                              <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
+                            </linearGradient>
+                            <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                          <XAxis dataKey="time" tick={{fontSize: 11, fill: '#94A3B8', fontFamily: 'var(--font-inter)'}} axisLine={false} tickLine={false} minTickGap={40} />
+                          <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fill: '#64748B', fontFamily: 'var(--font-mono)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `$${val.toLocaleString()}`} />
+                          <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                          
+                          {/* Ẩn Bar volume nếu volume = 0 để tránh vạch xấu */}
+                          {/* <Bar yAxisId="volume" ... /> - Đã bỏ vì DefiLlama Chart không có Vol */}
+
+                          {chartType === 'baseline' && (
+                            <>
+                              <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
+                              <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                            </>
+                          )}
+
+                          {chartType === 'mountain' && (
+                            <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                          )}
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </>
                  )}
-
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.25} />
-                        <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.25} />
-                      </linearGradient>
-                      <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
-                        <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
-                      </linearGradient>
-                      <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                    <XAxis dataKey="time" tick={{fontSize: 11, fill: '#94A3B8', fontFamily: 'var(--font-inter)'}} axisLine={false} tickLine={false} minTickGap={40} />
-                    <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fill: '#64748B', fontFamily: 'var(--font-mono)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `$${val.toLocaleString()}`} />
-                    <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 5]} hide />
-                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '4 4' }} />
-                    <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={6} radius={[2, 2, 0, 0]} />
-
-                    {chartType === 'baseline' && selectedCoin.chartData[0] && (
-                      <>
-                        <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
-                        <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
-                      </>
-                    )}
-
-                    {chartType === 'mountain' && (
-                      <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
-                    )}
-                  </ComposedChart>
-                </ResponsiveContainer>
               </div>
             </div>
 
-            {/* CỘT PHẢI: STATS (Đã dùng API DefiLlama Chain TVL) */}
+            {/* CỘT PHẢI: STATS PRO (GIAO DIỆN LƯỚI & THANH PROGRESS) */}
             <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
               <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-4">
-                <Activity size={20} className="text-blue-600"/> Thống kê On-chain
+                <Activity size={20} className="text-blue-600"/> Chỉ số thị trường
               </h3>
 
-              <div className="space-y-5">
+              {/* 1. Market Data Section */}
+              <div className="grid grid-cols-1 gap-5">
                 {[
-                  { label: "Market Cap", value: selectedCoin.mkt_cap, icon: <Info size={14} /> },
-                  { label: "Volume (24h)", value: selectedCoin.vol_24h, icon: <Info size={14} /> },
-                  { label: "FDV", value: selectedCoin.fdv, icon: <Info size={14} /> },
-                  // CHỈ SỐ DEFI ĐẶC TRƯNG
-                  { label: "TVL (Total Value Locked)", value: selectedCoin.tvl, icon: <Layers size={14} /> },
+                  { label: "Market Cap", value: selectedCoin.market_cap, icon: <Globe size={14}/> },
+                  { label: "Volume (24h)", value: selectedCoin.total_volume, icon: <TrendingUp size={14}/> },
+                  { label: "Fully Diluted (FDV)", value: selectedCoin.fully_diluted_valuation, icon: <Info size={14}/> },
+                  { label: "Total Value Locked (TVL)", value: selectedCoin.tvl, icon: <Layers size={14}/> },
                 ].map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">{item.label} {item.icon}</div>
-                    <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>
-                      ${formatCompactNumber(item.value)}
+                   <div key={idx} className="flex justify-between items-center py-1">
+                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">{item.icon} {item.label}</div>
+                      <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>
+                        {item.value ? `$${formatCompactNumber(item.value)}` : <span className="text-slate-300">N/A</span>}
+                      </div>
+                   </div>
+                ))}
+              </div>
+              
+              <div className="border-t border-slate-100 my-2"></div>
+
+              {/* 2. 24h Range Bar */}
+              <div className="space-y-2">
+                 <div className="flex justify-between text-xs font-bold text-slate-500">
+                    <span>Low: ${formatPrice(selectedCoin.low_24h)}</span>
+                    <span>High: ${formatPrice(selectedCoin.high_24h)}</span>
+                 </div>
+                 <div className="w-full h-2 bg-slate-100 rounded-full relative overflow-hidden">
+                    {/* Tính % vị trí giá hiện tại */}
+                    <div 
+                      className="absolute top-0 bottom-0 bg-slate-800 rounded-full"
+                      style={{
+                        left: `${((selectedCoin.current_price - selectedCoin.low_24h) / (selectedCoin.high_24h - selectedCoin.low_24h)) * 100}%`,
+                        width: '6px',
+                        transform: 'translateX(-50%)'
+                      }}
+                    ></div>
+                    {/* Thanh Range */}
+                    <div className="w-full h-full bg-gradient-to-r from-red-400 via-yellow-400 to-green-400 opacity-30"></div>
+                 </div>
+                 <div className="text-center text-[10px] text-slate-400 font-medium mt-1">24 Hour Range</div>
+              </div>
+
+              <div className="border-t border-slate-100 my-2"></div>
+
+              {/* 3. Historical Data (ATH/ATL) */}
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center">
+                    <div className="text-sm text-slate-500 font-medium">All Time High</div>
+                    <div className="text-right">
+                       <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.ath)}</div>
+                       <div className="text-xs text-red-500 font-bold">{selectedCoin.ath_change_percentage?.toFixed(2)}%</div>
+                    </div>
+                 </div>
+                 <div className="flex justify-between items-center">
+                    <div className="text-sm text-slate-500 font-medium">All Time Low</div>
+                    <div className="text-right">
+                       <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.atl)}</div>
+                       <div className="text-xs text-green-500 font-bold">+{selectedCoin.atl_change_percentage?.toFixed(2)}%</div>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="border-t border-slate-100 my-2"></div>
+
+              {/* 4. Supply Info */}
+              <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><CircleDollarSign size={14}/> Circulating</div>
+                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className} text-right`}>
+                        {formatCompactNumber(selectedCoin.circulating_supply)} {selectedCoin.symbol}
                     </div>
                   </div>
-                ))}
-
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">Mcap / TVL Ratio</div>
-                  <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>
-                    {selectedCoin.tvl > 0 ? (selectedCoin.mkt_cap / selectedCoin.tvl).toFixed(2) : 'N/A'}
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-600 rounded-full" style={{width: `${(selectedCoin.circulating_supply / (selectedCoin.max_supply || selectedCoin.total_supply)) * 100}%`}}></div>
                   </div>
-                </div>
-
-                <div className="border-t border-slate-100 pt-4 space-y-5">
-                   <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">Circulating Supply <CircleDollarSign size={14} /></div>
-                      <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className} text-right`}>
-                         {formatCompactNumber(selectedCoin.circ_supply)} {selectedCoin.symbol}
-                         <div className="w-24 h-1.5 bg-slate-100 rounded-full mt-1 ml-auto overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{width: '80%'}}></div>
-                         </div>
-                      </div>
-                   </div>
-                   <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">Total Supply <Database size={14} /></div>
-                      <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>
-                        {formatCompactNumber(selectedCoin.total_supply || 0)}
-                      </div>
-                   </div>
-                </div>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><Database size={14}/> Total Supply</div>
+                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>
+                      {formatCompactNumber(selectedCoin.total_supply)}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><Lock size={14}/> Max Supply</div>
+                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>
+                      {selectedCoin.max_supply ? formatCompactNumber(selectedCoin.max_supply) : '∞'}
+                    </div>
+                  </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -551,7 +578,7 @@ export default function Home() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center">
             <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết
+              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết (Top 8)
             </h3>
             <button className="text-xs font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1"><Settings size={14} /> Tùy chỉnh</button>
           </div>
@@ -561,8 +588,8 @@ export default function Home() {
                 <th className="px-6 py-4">Tài sản</th>
                 <th className="px-6 py-4 text-right">Giá (USD)</th>
                 <th className="px-6 py-4 text-right">Biến động (24h)</th>
+                <th className="px-6 py-4 text-right">Market Cap</th>
                 <th className="px-6 py-4 text-right">TVL (DeFi)</th>
-                <th className="px-6 py-4 text-right">Điểm tuân thủ</th>
                 <th className="px-6 py-4 text-center">Thao tác</th>
               </tr>
             </thead>
@@ -573,10 +600,12 @@ export default function Home() {
                      <img src={coin.image} className="w-8 h-8 rounded-full border" />
                      <div><div className="font-bold">{coin.name}</div><div className="text-xs text-slate-400">{coin.symbol}</div></div>
                   </td>
-                  <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>${coin.price?.toLocaleString()}</td>
-                  <td className={`px-6 py-4 text-right font-bold ${coin.change_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>{coin.change_24h?.toFixed(2)}%</td>
-                  <td className={`px-6 py-4 text-right font-medium text-slate-600 ${jetbrainsMono.className}`}>${formatCompactNumber(coin.tvl)}</td>
-                  <td className="px-6 py-4 text-right"><span className="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-xs font-bold">{coin.compliance_score}/100</span></td>
+                  <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>${formatPrice(coin.current_price)}</td>
+                  <td className={`px-6 py-4 text-right font-bold ${coin.price_change_percentage_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>{coin.price_change_percentage_24h?.toFixed(2)}%</td>
+                  <td className={`px-6 py-4 text-right font-medium text-slate-600 ${jetbrainsMono.className}`}>${formatCompactNumber(coin.market_cap)}</td>
+                  <td className={`px-6 py-4 text-right font-medium text-slate-600 ${jetbrainsMono.className}`}>
+                     {coin.tvl ? `$${formatCompactNumber(coin.tvl)}` : '-'}
+                  </td>
                   <td className="px-6 py-4 text-center"><button className="text-xs bg-slate-100 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded font-bold transition flex items-center gap-1 mx-auto"><Eye size={12}/> Xem</button></td>
                 </tr>
               ))}
@@ -610,7 +639,7 @@ export default function Home() {
             <div><p className="mb-4"><strong>THÔNG TIN THAM KHẢO:</strong> Nội dung chỉ nhằm mục đích cung cấp thông tin chung.</p><p className="mb-4"><strong>KHÔNG ĐẢM BẢO:</strong> Chúng tôi không đảm bảo tính chính xác tuyệt đối của dữ liệu.</p></div>
             <div><p className="mb-4"><strong>TỰ CHỊU TRÁCH NHIỆM:</strong> Việc đầu tư là quyết định của bạn.</p><p className="text-white font-bold border-l-2 border-yellow-500 pl-3">Không có nội dung nào được hiểu là lời khuyên đầu tư.</p></div>
           </div>
-          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500"><p>&copy; 2026 VNMetrics. Dữ liệu cung cấp bởi DefiLlama API (Public Free Tier).</p></div>
+          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500"><p>&copy; 2026 VNMetrics. Dữ liệu cung cấp bởi CoinGecko & DefiLlama (Public Free Tier).</p></div>
         </div>
       </footer>
     </div>
