@@ -464,19 +464,4 @@ export default function Home() {
         </div>
       </section>
 
-      {/* DISCLAIMER */}
-      <section className="max-w-7xl mx-auto px-4 mt-12 mb-8">
-         <div className="bg-slate-50 border border-slate-200 p-6 rounded-xl text-xs text-slate-500 text-justify leading-relaxed">
-            <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><AlertTriangle size={14}/> MIỄN TRỪ TRÁCH NHIỆM</h4>
-            <p>Thông tin tài sản mã hóa (TSMH) trình bày trên VNMetrics được tổng hợp từ các nguồn dữ liệu quốc tế (CoinGecko, Binance, DefiLlama) và chỉ nhằm mục đích tham khảo. Nhà đầu tư được khuyến nghị tìm hiểu kỹ lưỡng các quy định pháp luật hiện hành (bao gồm Nghị quyết 05/2025/NQ-CP) cũng như những rủi ro liên quan trước khi tham gia bất kỳ hoạt động đầu tư nào. VNMetrics không cung cấp dịch vụ giao dịch, môi giới hay đưa ra bất kỳ lời khuyên đầu tư nào.</p>
-         </div>
-      </section>
-
-      <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 text-center text-[10px] text-slate-500">
-          <p>&copy; 2026 VNMetrics. Dữ liệu cung cấp bởi CoinGecko, Binance & DefiLlama.</p>
-        </div>
-      </footer>
-    </div>
-  );
-}
+      
