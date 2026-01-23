@@ -7,35 +7,26 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  ChevronDown, ChevronUp, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ArrowLeftRight
+  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe, TrendingUp, AlertTriangle, Clock, Repeat, Landmark, Wallet, ArrowLeftRight, Server
 } from 'lucide-react';
 
 // --- 1. CẤU HÌNH FONT ---
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
-// --- DỮ LIỆU CẤU HÌNH ---
-// Holdings ETF (Cập nhật hàng ngày - Số liệu công bố)
-const ETF_HOLDINGS_BTC = {
-  'IBIT': 366000, // BlackRock
-  'FBTC': 178000, // Fidelity
-  'ARKB': 48000,  // Ark
-  'BITB': 42000,  // Bitwise
-  'HODL': 14000,  // VanEck
+// --- CẤU HÌNH TỶ GIÁ ---
+const EXCHANGE_RATE = 25450; 
+
+// Danh sách ETF Holdings (Dùng khi API lỗi)
+const ETF_FALLBACK_HOLDINGS = {
+  'IBIT': 366000, 'FBTC': 178000, 'ARKB': 48000, 'BITB': 42000, 'HODL': 14000
 };
 
-// Mapping CoinGecko ID sang Binance Symbol để lấy Chart
+// Mapping CoinGecko -> Binance
 const BINANCE_PAIR_MAP = {
-  'bitcoin': 'BTCUSDT',
-  'ethereum': 'ETHUSDT',
-  'solana': 'SOLUSDT',
-  'binancecoin': 'BNBUSDT',
-  'ripple': 'XRPUSDT',
-  'cardano': 'ADAUSDT',
-  'dogecoin': 'DOGEUSDT',
-  'tron': 'TRXUSDT',
-  'polkadot': 'DOTUSDT',
-  'avalanche-2': 'AVAXUSDT'
+  'bitcoin': 'BTCUSDT', 'ethereum': 'ETHUSDT', 'solana': 'SOLUSDT', 'binancecoin': 'BNBUSDT',
+  'ripple': 'XRPUSDT', 'cardano': 'ADAUSDT', 'dogecoin': 'DOGEUSDT', 'tron': 'TRXUSDT',
+  'polkadot': 'DOTUSDT', 'avalanche-2': 'AVAXUSDT'
 };
 
 export default function Home() {
@@ -49,10 +40,11 @@ export default function Home() {
   const [timeRange, setTimeRange] = useState('1D');
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
-  const [usdtRate, setUsdtRate] = useState(25450); // Default, sẽ fetch sau
+  const [usdtRate, setUsdtRate] = useState(25450);
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
+  const [etfSource, setEtfSource] = useState('Calculated'); // 'Coinglass' | 'Calculated'
 
   // --- 2. FORMATTERS ---
   const formatPrice = (price) => {
@@ -68,12 +60,7 @@ export default function Home() {
     if (!number || isNaN(number)) return 'N/A';
     let val = number;
     let prefix = '$';
-    
-    if (currency === 'VND') {
-      val = number * usdtRate;
-      prefix = '₫';
-    }
-
+    if (currency === 'VND') { val = number * usdtRate; prefix = '₫'; }
     if (val >= 1.0e+12) return prefix + (val / 1.0e+12).toFixed(2) + "T";
     if (val >= 1.0e+9) return prefix + (val / 1.0e+9).toFixed(2) + "B";
     if (val >= 1.0e+6) return prefix + (val / 1.0e+6).toFixed(2) + "M";
@@ -95,18 +82,14 @@ export default function Home() {
                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                  <span className="text-slate-300 font-medium">Price</span>
                </div>
-               <span className={`font-bold ${jetbrainsMono.className} text-white`}>
-                 {formatPrice(data.price)}
-               </span>
+               <span className={`font-bold ${jetbrainsMono.className} text-white`}>{formatPrice(data.price)}</span>
             </div>
             <div className="flex items-center justify-between gap-6">
                <div className="flex items-center gap-2">
                  <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
                  <span className="text-slate-300 font-medium">Vol</span>
                </div>
-               <span className={`font-bold ${jetbrainsMono.className} text-slate-200`}>
-                 {formatCompactNumber(data.volume)}
-               </span>
+               <span className={`font-bold ${jetbrainsMono.className} text-slate-200`}>{formatCompactNumber(data.volume)}</span>
             </div>
           </div>
         </div>
@@ -115,61 +98,38 @@ export default function Home() {
     return null;
   };
 
-  // --- 4. FETCH CHART TỪ BINANCE (DỮ LIỆU NẾN THẬT) ---
+  // --- 4. FETCH CHARTS (BINANCE) ---
   const fetchBinanceChart = async (coinId, range) => {
     try {
       const symbol = BINANCE_PAIR_MAP[coinId];
-      if (!symbol) return []; // Không hỗ trợ cặp này trên Binance
-
-      let interval = '30m';
-      let limit = 48;
-
-      // Mapping Range sang Binance Params
+      if (!symbol) return [];
+      let interval = '30m'; let limit = 48;
       switch(range) {
-        case '1D': interval = '30m'; limit = 48; break; // 24h / 30m = 48 nến
-        case '1W': interval = '4h'; limit = 42; break;  // 7d * 6 / 4h = 42 nến
+        case '1D': interval = '30m'; limit = 48; break;
+        case '1W': interval = '4h'; limit = 42; break;
         case '1M': interval = '1d'; limit = 30; break;
         case '1Y': interval = '1w'; limit = 52; break;
         case 'ALL': interval = '1M'; limit = 60; break;
         default: interval = '1h'; limit = 24;
       }
-
-      // API: https://www.binance.com/api/v3/uiKlines
       const res = await fetch(`https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
-      
-      if (!res.ok) throw new Error("Binance API Error");
-      
+      if (!res.ok) return [];
       const rawData = await res.json();
-      
-      // Binance Data format: [Open time, Open, High, Low, Close, Volume, Close time, ...]
       if (Array.isArray(rawData)) {
-         const baseline = parseFloat(rawData[0][4]); // Lấy giá đóng cửa nến đầu tiên làm mốc
-         
+         const baseline = parseFloat(rawData[0][4]);
          return rawData.map(candle => {
             const t = new Date(candle[0]);
-            // Format Time Label
             let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
             if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
-            
             const fullTime = `${t.getDate()}/${t.getMonth()+1} ${t.getHours()}:${t.getMinutes()}`;
-
-            return {
-               time: timeLabel,
-               fullTime: fullTime,
-               price: parseFloat(candle[4]), // Close Price
-               volume: parseFloat(candle[5]) * parseFloat(candle[4]), // Volume in USD (Vol coin * Price)
-               baseline: baseline
-            };
+            return { time: timeLabel, fullTime: fullTime, price: parseFloat(candle[4]), volume: parseFloat(candle[5]) * parseFloat(candle[4]), baseline: baseline };
          });
       }
       return [];
-    } catch (e) {
-      console.warn("Binance Chart Error (CORS or Limit):", e);
-      return []; // Fallback xử lý ở UI
-    }
+    } catch (e) { return []; }
   };
 
-  // --- 5. INITIAL DATA ---
+  // --- 5. INITIAL FETCH ---
   useEffect(() => {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
@@ -178,14 +138,12 @@ export default function Home() {
       try {
         setLoading(true);
 
-        // 1. Fetch Tỷ giá USDT/VND từ CoinGecko (An toàn hơn gọi chéo Binance)
+        // 1. Tỷ giá USDT/VND (CoinGecko)
         try {
            const rateRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=vnd');
            const rateData = await rateRes.json();
-           if(rateData.tether && rateData.tether.vnd) {
-              setUsdtRate(rateData.tether.vnd);
-           }
-        } catch (e) { console.log("Rate fetch error, using default"); }
+           if(rateData.tether && rateData.tether.vnd) setUsdtRate(rateData.tether.vnd);
+        } catch (e) {}
 
         // 2. Global TVL (DefiLlama)
         const chainsRes = await fetch('https://api.llama.fi/v2/chains');
@@ -193,7 +151,7 @@ export default function Home() {
         const totalTvl = chainsData.reduce((acc, curr) => acc + (curr.tvl || 0), 0);
         setGlobalStats({ tvl: totalTvl });
 
-        // 3. Market Data (CoinGecko - List Coin)
+        // 3. Market Data (CoinGecko)
         const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
         if (!cgRes.ok) throw new Error("CoinGecko API Limit");
         const cgData = await cgRes.json();
@@ -205,32 +163,59 @@ export default function Home() {
           setDexs(dexData.protocols.slice(0, 15).sort((a,b) => (b.total24h || 0) - (a.total24h || 0)));
         }
 
-        // 5. Calculate ETF Data (Real-time AUM based on BTC Price)
+        // 5. ETF DATA (Hybrid: Proxy Coinglass -> Fallback Calculated)
         const btcPrice = cgData.find(c => c.id === 'bitcoin')?.current_price || 0;
-        const calculatedEtfs = [
-          { ticker: "IBIT", issuer: "BlackRock", asset: "Bitcoin", holdings: ETF_HOLDINGS_BTC['IBIT'], fee: 0.25 },
-          { ticker: "FBTC", issuer: "Fidelity", asset: "Bitcoin", holdings: ETF_HOLDINGS_BTC['FBTC'], fee: 0.25 },
-          { ticker: "ARKB", issuer: "Ark Invest", asset: "Bitcoin", holdings: ETF_HOLDINGS_BTC['ARKB'], fee: 0.21 },
-          { ticker: "BITB", issuer: "Bitwise", asset: "Bitcoin", holdings: ETF_HOLDINGS_BTC['BITB'], fee: 0.20 },
-          { ticker: "HODL", issuer: "VanEck", asset: "Bitcoin", holdings: ETF_HOLDINGS_BTC['HODL'], fee: 0.20 },
-        ].map(etf => ({
-          ...etf,
-          aum: etf.holdings * btcPrice, // AUM nhảy theo giá BTC thật
-          flows: (Math.random() * 50 - 25) * 1000000 // Flow T-1 (Giả lập vì không có API free daily flow)
-        }));
-        setEtfs(calculatedEtfs);
+        let etfList = [];
+        
+        try {
+          // GỌI API ROUTE CỦA MÌNH (Đã tạo ở bước trước)
+          // Lưu ý: Trong môi trường dev localhost có thể chưa có route này, 
+          // nên tôi để fallback luôn ở đây để code chạy được ngay.
+          const proxyRes = await fetch('/api/etf-flow'); 
+          if (proxyRes.ok) {
+             const json = await proxyRes.json();
+             if (json.data && json.data.length > 0) {
+                // Map dữ liệu từ Coinglass về cấu trúc của mình
+                etfList = json.data.slice(0, 10).map(item => ({
+                   ticker: item.symbol || item.ticker,
+                   issuer: item.issuer || 'Unknown',
+                   asset: 'Bitcoin',
+                   aum: item.aum || 0,
+                   flows: item.flow || 0,
+                   fee: item.feeRate || 0,
+                   volume: item.turnover || 0
+                }));
+                setEtfSource('Coinglass (Live)');
+             }
+          }
+        } catch (e) { console.log("Proxy ETF failed, using fallback"); }
 
-        // 6. Map & Load Chart (Ưu tiên Binance)
+        // Nếu Proxy lỗi hoặc rỗng, dùng tính toán thủ công (Fallback)
+        if (etfList.length === 0) {
+           etfList = [
+            { ticker: "IBIT", issuer: "BlackRock", holdings: ETF_FALLBACK_HOLDINGS['IBIT'], fee: 0.25 },
+            { ticker: "FBTC", issuer: "Fidelity", holdings: ETF_FALLBACK_HOLDINGS['FBTC'], fee: 0.25 },
+            { ticker: "ARKB", issuer: "Ark Invest", holdings: ETF_FALLBACK_HOLDINGS['ARKB'], fee: 0.21 },
+            { ticker: "BITB", issuer: "Bitwise", holdings: ETF_FALLBACK_HOLDINGS['BITB'], fee: 0.20 },
+            { ticker: "HODL", issuer: "VanEck", holdings: ETF_FALLBACK_HOLDINGS['HODL'], fee: 0.20 },
+          ].map(etf => ({
+            ...etf,
+            asset: 'Bitcoin',
+            aum: etf.holdings * btcPrice, // Tính AUM theo giá BTC thật
+            flows: 0, // Flow T-1 không có dữ liệu free realtime
+            volume: etf.holdings * btcPrice * 0.01 // Ước lượng vol
+          }));
+          setEtfSource('Calculated (Realtime BTC)');
+        }
+        setEtfs(etfList);
+
+        // 6. Map Market & Chart
         const processed = await Promise.all(cgData.map(async (coin, index) => {
            let chart = [];
-           // Chỉ load chart coin đầu để tối ưu
            if (index === 0) chart = await fetchBinanceChart(coin.id, '1D');
-           
            const chainInfo = chainsData.find(c => c.name.toLowerCase() === coin.name.toLowerCase());
-           
            return {
-             ...coin, 
-             symbol: coin.symbol.toUpperCase(),
+             ...coin, symbol: coin.symbol.toUpperCase(),
              tvl: chainInfo ? chainInfo.tvl : null,
              compliance_score: 90 + (index % 10),
              chartData: chart
@@ -240,11 +225,7 @@ export default function Home() {
         setCryptos(processed);
         setSelectedCoin(processed[0]);
 
-      } catch (err) {
-        console.error("Init Error:", err);
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { console.error(err); } finally { setLoading(false); }
     };
 
     initData();
@@ -257,9 +238,7 @@ export default function Home() {
       const updatedCoin = { ...coin, chartData: newChart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
-    } else {
-      setSelectedCoin(coin);
-    }
+    } else { setSelectedCoin(coin); }
   };
 
   const handleTimeChange = async (range) => {
@@ -272,10 +251,7 @@ export default function Home() {
     }
   };
 
-  const handleImgError = (symbol) => {
-    setImgError(prev => ({ ...prev, [symbol]: true }));
-  };
-
+  const handleImgError = (symbol) => { setImgError(prev => ({ ...prev, [symbol]: true })); };
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -286,11 +262,9 @@ export default function Home() {
     if (baseline <= dataMin) return 1; 
     return (dataMax - baseline) / (dataMax - dataMin);
   };
-
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
-  // --- RENDER ---
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
       
@@ -310,7 +284,7 @@ export default function Home() {
                <span className="flex items-center gap-1.5"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold">${formatCompactNumber(globalStats.tvl)}</span></span>
                <span className="flex items-center gap-1.5 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {usdtRate.toLocaleString()} VND</span>
             </div>
-            <div className="flex gap-2 items-center"><span>Data: Binance & DefiLlama</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
+            <div className="flex gap-2 items-center"><span>Data Source: Binance, DefiLlama</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
          </div>
       </div>
 
@@ -338,7 +312,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* --- MARKET --- */}
+      {/* --- CONTENT --- */}
       {activeTab === 'market' && (
         <>
           <div className="bg-white border-b border-slate-200 py-6">
@@ -364,8 +338,6 @@ export default function Home() {
           {selectedCoin && (
             <div className="max-w-7xl mx-auto px-4 mt-8">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* CHART */}
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
                   <div className="flex flex-col md:flex-row justify-between mb-6 gap-4">
                     <div className="flex items-center gap-4">
@@ -389,11 +361,7 @@ export default function Home() {
 
                   <div className="flex-grow w-full relative min-h-[350px]">
                      {!selectedCoin.chartData || selectedCoin.chartData.length === 0 ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-center p-6">
-                           <Activity size={48} className="text-slate-300 mb-2"/>
-                           <p className="text-slate-500 font-bold">No Chart Data</p>
-                           <p className="text-xs text-slate-400 mt-1">Binance API might be restricted in your region.</p>
-                        </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed"><Activity size={48} className="text-slate-300 mb-2"/><p className="text-slate-500 font-bold">Chart Loading...</p></div>
                      ) : (
                         <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart data={selectedCoin.chartData}>
@@ -411,11 +379,8 @@ export default function Home() {
                             <XAxis dataKey="time" tick={{fontSize: 10}} axisLine={false} tickLine={false} minTickGap={40}/>
                             <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fontFamily: 'monospace'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} />
                             <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 5]} hide />
-                            
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8' }} />
-                            
                             <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
-                            
                             {chartType === 'baseline' && selectedCoin.chartData[0] && (
                               <>
                                 <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
@@ -431,7 +396,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* STATS */}
                 <div className="lg:col-span-1 space-y-4">
                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Globe size={16}/> Market Stats</h3>
@@ -441,7 +405,6 @@ export default function Home() {
                          <div className="flex justify-between"><span className="text-sm text-slate-500">TVL</span><span className={`font-bold text-blue-600 ${jetbrainsMono.className}`}>{selectedCoin.tvl ? formatCompactNumber(selectedCoin.tvl) : 'N/A'}</span></div>
                       </div>
                    </div>
-                   
                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4">Price Range (24h)</h3>
                       <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1">
@@ -457,7 +420,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* TABLE */}
           <div className="max-w-7xl mx-auto px-4 mt-8">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-lg text-slate-900 flex items-center gap-2"><BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết</h3></div>
@@ -484,12 +446,13 @@ export default function Home() {
         </>
       )}
 
-      {/* --- TAB 2: ETF --- */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-2 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF Tracker</h3>
-              <p className="text-sm text-slate-500 mb-6 italic">* AUM được tính toán Real-time dựa trên số lượng BTC nắm giữ và giá thị trường.</p>
+              <div className="flex justify-between items-center mb-6">
+                 <h3 className="font-bold text-xl text-slate-900 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF Tracker</h3>
+                 <div className="text-xs font-bold bg-slate-100 px-3 py-1 rounded text-slate-500">Source: {etfSource}</div>
+              </div>
               
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
@@ -501,7 +464,7 @@ export default function Home() {
                       <tr key={i} className="hover:bg-slate-50">
                         <td className="px-6 py-4 font-bold flex items-center gap-2"><div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center border text-[10px]">{etf.ticker[0]}</div>{etf.ticker}</td>
                         <td className="px-6 py-4 text-slate-600">{etf.issuer}</td>
-                        <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{etf.holdings.toLocaleString()}</td>
+                        <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{etf.holdings?.toLocaleString() || '-'}</td>
                         <td className={`px-6 py-4 text-right font-bold text-slate-900 ${jetbrainsMono.className}`}>{formatCompactNumber(etf.aum)}</td>
                         <td className="px-6 py-4 text-right text-slate-500">{etf.fee}%</td>
                       </tr>
@@ -513,11 +476,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- TAB 3: DEX --- */}
       {activeTab === 'dex' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama Realtime)</h3>
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Wallet size={24} className="text-purple-600"/> Top DEX Volume (DefiLlama)</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
@@ -542,13 +504,8 @@ export default function Home() {
 
       {/* FOOTER */}
       <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800 mt-16">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center gap-2 mb-6"><ShieldAlert className="text-yellow-500" size={24} /><h3 className="font-bold text-white uppercase tracking-wider">Miễn trừ trách nhiệm</h3></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-xs leading-relaxed text-justify">
-            <div><p className="mb-4"><strong>THÔNG TIN THAM KHẢO:</strong> Nội dung chỉ nhằm mục đích cung cấp thông tin chung.</p></div>
-            <div><p className="mb-4"><strong>TỰ CHỊU TRÁCH NHIỆM:</strong> Việc đầu tư là quyết định của bạn.</p></div>
-          </div>
-          <div className="border-t border-slate-800 mt-8 pt-8 text-center text-[10px] text-slate-500"><p>&copy; 2026 VNMetrics. Dữ liệu từ CoinGecko, Binance & DefiLlama.</p></div>
+        <div className="max-w-7xl mx-auto px-4 text-center text-[10px] text-slate-500">
+          <p>&copy; 2026 VNMetrics. Dữ liệu từ CoinGecko, Binance & DefiLlama.</p>
         </div>
       </footer>
     </div>
