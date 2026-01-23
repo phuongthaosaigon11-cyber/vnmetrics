@@ -18,53 +18,17 @@ const beVietnam = Be_Vietnam_Pro({
 });
 const robotoMono = Roboto_Mono({ subsets: ['latin'] });
 
-// --- 2. CUSTOM SHAPE: NẾN TRADINGVIEW (CÓ RÂU NẾN) ---
-const CustomCandleShape = (props) => {
-  const { x, y, width, height, payload } = props;
-  const { open, close, high, low } = payload;
-  
-  // Xác định màu sắc: Tăng (Xanh), Giảm (Đỏ)
-  const isUp = close >= open;
-  const fill = isUp ? '#22C55E' : '#EF4444'; 
-  
-  // Tính toán tọa độ vẽ râu nến (Line High-Low)
-  // Mẹo: Dùng tỷ lệ height/body_range để map giá sang pixel
-  const bodyRange = Math.abs(open - close);
-  const pixelRatio = bodyRange === 0 ? 0 : height / bodyRange;
-  
-  const maxBody = Math.max(open, close);
-  const minBody = Math.min(open, close);
-  
-  // Tọa độ pixel của High và Low
-  const yHigh = y - (high - maxBody) * pixelRatio;
-  const yLow = y + height + (minBody - low) * pixelRatio;
-  const xCenter = x + width / 2;
-
-  return (
-    <g>
-      {/* Râu nến (Wick) */}
-      <line x1={xCenter} y1={yHigh} x2={xCenter} y2={yLow} stroke={fill} strokeWidth={1.5} />
-      {/* Thân nến (Body) - Nếu open=close (Doji) thì vẽ 1 line ngang */}
-      {height === 0 ? (
-         <line x1={x} y1={y} x2={x + width} y2={y} stroke={fill} strokeWidth={2} />
-      ) : (
-         <rect x={x} y={y} width={width} height={height} fill={fill} />
-      )}
-    </g>
-  );
-};
-
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showConsent, setShowConsent] = useState(false);
   const [selectedCoin, setSelectedCoin] = useState(null);
   const [timeRange, setTimeRange] = useState('1D');
-  const [chartType, setChartType] = useState('baseline'); 
+  const [chartType, setChartType] = useState('baseline'); // Default là Baseline
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
-  const [imgError, setImgError] = useState({}); // State xử lý lỗi ảnh
+  const [imgError, setImgError] = useState({});
 
-  // FAQ Dữ liệu (Pháp lý)
+  // Dữ liệu pháp lý (Nghị quyết 05/2025/NQ-CP)
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
@@ -80,45 +44,35 @@ export default function Home() {
     }
   ];
 
-  // LOGIC TẠO DATA CHART (Có High/Low cho Candle)
+  // --- 2. GENERATE DATA ---
   const generateChartData = (currentPrice, range) => {
     const pointsMap = { '1D': 48, '1W': 14, '1M': 30, '1Y': 12, 'ALL': 50 };
     const points = pointsMap[range] || 48;
     
     const data = [];
+    // Logic giá tham chiếu (Open Price) cho Baseline
     let price = currentPrice * (1 - (Math.random() * 0.05)); 
-    const baselinePrice = price; 
+    const baselinePrice = price; // Giá này cố định cho cả chart để làm mốc
 
     for (let i = 0; i < points; i++) {
-      const volatility = 0.02; // Biến động
+      const volatility = 0.02;
       const change = 1 + (Math.random() * volatility * 2 - volatility);
       price = price * change;
-      
       const vol = Math.floor(Math.random() * 5000) + 500;
       
-      // Tạo dữ liệu nến (OHLC)
-      const open = price;
-      const close = price * (1 + (Math.random() * 0.01 - 0.005));
-      const high = Math.max(open, close) * (1 + Math.random() * 0.005);
-      const low = Math.min(open, close) * (1 - Math.random() * 0.005);
-
       data.push({ 
         time: range === '1D' ? `${i}:00` : `T${i+1}`, 
-        price: close, // Giá cho Line/Baseline
-        baseline: baselinePrice,
+        price: price, 
+        baseline: baselinePrice, // Mốc so sánh
         volume: vol,
-        open, close, high, low,
-        // Dữ liệu cho Bar Candle (Body range)
-        candleBody: [Math.min(open, close), Math.max(open, close)] 
       });
     }
-    // Chốt giá cuối
+    // Chốt giá cuối bằng giá thực tế
     data[data.length - 1].price = currentPrice;
-    data[data.length - 1].close = currentPrice;
     return data;
   };
 
-  // LOGIC MÀU BASELINE (Xanh/Đỏ)
+  // --- 3. LOGIC BASELINE CHUẨN (CŨ) ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const dataMax = Math.max(...data.map((i) => i.price));
@@ -126,8 +80,8 @@ export default function Home() {
     const baseline = data[0].baseline;
 
     if (dataMax <= dataMin) return 0;
-    if (baseline >= dataMax) return 0;
-    if (baseline <= dataMin) return 1;
+    if (baseline >= dataMax) return 0; // Toàn bộ đỏ
+    if (baseline <= dataMin) return 1; // Toàn bộ xanh
 
     return (dataMax - baseline) / (dataMax - dataMin);
   };
@@ -136,7 +90,6 @@ export default function Home() {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
 
-    // Mock Data
     const mockData = [
       { symbol: 'BTC', name: 'Bitcoin', price: 89594.59, change_24h: 0.79, compliance_score: 98, image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png" },
       { symbol: 'ETH', name: 'Ethereum', price: 2950.34, change_24h: -2.33, compliance_score: 95, image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png" },
@@ -164,7 +117,6 @@ export default function Home() {
   };
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData) : 0;
-  // Tính max volume để scale (ép volume xuống đáy)
   const maxVolume = selectedCoin ? Math.max(...selectedCoin.chartData.map(d => d.volume)) : 0;
 
   return (
@@ -203,7 +155,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* --- PHẦN 1: TICKER / MARKET RADAR (KHÔI PHỤC THEO YÊU CẦU) --- */}
+      {/* MARKET RADAR (TICKER) */}
       <div className="bg-white border-b border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-4">
@@ -248,7 +200,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* --- PHẦN 2: CHART SECTION (CÓ LOGO FIX, CANDLE MỚI, VOLUME TÁCH BIỆT) --- */}
+      {/* CHART SECTION */}
       {selectedCoin && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -256,7 +208,6 @@ export default function Home() {
             {/* Header Chart */}
             <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
               <div className="flex items-center gap-4">
-                 {/* Xử lý Logo lỗi */}
                  {imgError[selectedCoin.symbol] ? (
                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
                      <Bitcoin className="text-orange-500" size={28} />
@@ -293,8 +244,9 @@ export default function Home() {
 
                 <div className="flex gap-2">
                     <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                      {/* Chọn Chart Type: Baseline hoặc Mountain */}
                       <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white text-blue-700 shadow':''}`}>Baseline</button>
-                      <button onClick={() => setChartType('candle')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='candle'?'bg-white text-blue-700 shadow':''}`}>Candle</button>
+                      <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white text-blue-700 shadow':''}`}>Mountain</button>
                     </div>
                     <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
                       {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
@@ -305,8 +257,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* CHART AREA */}
+            {/* CHART DISPLAY */}
             <div className="h-[450px] w-full relative">
+               {/* Label Baseline */}
                {chartType === 'baseline' && (
                  <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-slate-500 border border-slate-200 shadow-sm flex items-center gap-2">
                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
@@ -317,13 +270,20 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
+                    {/* Gradient Baseline CŨ (Xanh trên / Đỏ dưới) */}
                     <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#22C55E" stopOpacity={0.15} />
-                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.15} />
+                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.3} /> {/* Green */}
+                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.3} /> {/* Red */}
                     </linearGradient>
                     <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset={gradientOffset} stopColor="#16A34A" stopOpacity={1} />
-                      <stop offset={gradientOffset} stopColor="#DC2626" stopOpacity={1} />
+                      <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
+                      <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
+                    </linearGradient>
+
+                    {/* Gradient Mountain (Xanh Dương) */}
+                    <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
 
@@ -331,7 +291,6 @@ export default function Home() {
                   
                   <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94A3B8'}} axisLine={false} tickLine={false} minTickGap={30} />
                   
-                  {/* Trục Giá bên phải */}
                   <YAxis 
                     yAxisId="price"
                     orientation="right" 
@@ -341,27 +300,26 @@ export default function Home() {
                     tickFormatter={(val) => `$${val.toLocaleString()}`}
                   />
 
-                  {/* Trục Volume bên trái (Ẩn + Domain lớn để đẩy cột xuống đáy) */}
+                  {/* Volume Axis (Ẩn) */}
                   <YAxis 
                     yAxisId="volume" 
                     orientation="left" 
-                    domain={[0, maxVolume * 6]} // Tỷ lệ *6 giúp volume chỉ chiếm phần nhỏ phía dưới
+                    domain={[0, maxVolume * 6]} 
                     hide 
                   />
 
                   <Tooltip 
                     contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'var(--font-be-vietnam-pro)'}}
                     formatter={(value, name) => [
-                      name === 'price' || name === 'candleBody' ? `$${(Array.isArray(value) ? value[1] : value).toLocaleString()}` : value.toLocaleString(), 
+                      value.toLocaleString(), 
                       name === 'volume' ? 'Volume' : 'Giá'
                     ]}
                     labelStyle={{color: '#94A3B8'}}
                   />
 
-                  {/* Cột Volume nằm dưới đáy */}
                   <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={12} radius={[2, 2, 0, 0]} />
 
-                  {/* Biểu đồ Baseline */}
+                  {/* BASELINE CHART */}
                   {chartType === 'baseline' && (
                     <>
                       <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0]?.baseline} stroke="#94A3B8" strokeDasharray="3 3" strokeOpacity={0.5} />
@@ -378,14 +336,17 @@ export default function Home() {
                     </>
                   )}
 
-                  {/* Biểu đồ Candle chuẩn TradingView (CustomShape) */}
-                  {chartType === 'candle' && (
-                    <Bar 
-                      yAxisId="price" 
-                      dataKey="candleBody" 
-                      shape={<CustomCandleShape />} // Dùng shape vẽ râu nến + thân nến
-                      barSize={10}
+                  {/* MOUNTAIN CHART (MỚI) */}
+                  {chartType === 'mountain' && (
+                    <Area 
+                      yAxisId="price"
+                      type="monotone" 
+                      dataKey="price" 
+                      stroke="#2563EB" 
+                      fill="url(#colorMountain)" 
+                      strokeWidth={2} 
                       animationDuration={500}
+                      activeDot={{ r: 4, strokeWidth: 0 }}
                     />
                   )}
 
@@ -439,28 +400,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* FAQ SECTION */}
-      <section className="max-w-4xl mx-auto px-4 mt-16 mb-16">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
-            <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
-          </h2>
-          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP</p>
-        </div>
-        <div className="space-y-3">
-          {faqs.map((faq, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <button onClick={() => setOpenFaqIndex(openFaqIndex === idx ? null : idx)} className="w-full flex justify-between items-center p-5 text-left hover:bg-slate-50">
-                <span className="font-bold text-slate-800 pr-4">{faq.question}</span>
-                {openFaqIndex === idx ? <ChevronUp size={20} className="text-blue-600"/> : <ChevronDown size={20} className="text-slate-400"/>}
-              </button>
-              {openFaqIndex === idx && <div className="p-5 pt-0 text-sm text-slate-600 bg-white"><div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-justify">{faq.answer}</div></div>}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* --- PHẦN 3: FOOTER NGUYÊN BẢN (KHÔI PHỤC ĐẦY ĐỦ) --- */}
+      {/* FOOTER */}
       <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center gap-2 mb-6">
