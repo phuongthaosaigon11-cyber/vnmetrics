@@ -2,58 +2,43 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// --- CHUẨN HÓA HEADER THEO CODE DENO CỦA BẠN ---
-const FAKE_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "application/json",
-  "client-type": "web", // Quan trọng với Binance
-  "Cache-Control": "no-cache",
-  "Pragma": "no-cache"
-};
-
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const type = searchParams.get('type'); 
 
   try {
     let targetUrl = '';
-    const fetchOptions = {
-      method: 'GET',
-      headers: { ...FAKE_HEADERS },
-      next: { revalidate: 0 } // Tắt cache Next.js để tránh lưu lại lỗi 403
-    };
-
-    // --- 1. BINANCE CHART (Dùng API Public chuẩn) ---
-    if (type === 'binance') {
-      const symbol = searchParams.get('symbol');
-      const interval = searchParams.get('interval') || '1d';
-      const limit = searchParams.get('limit') || '100';
+    
+    // --- 1. DEFILLAMA CHART (Thay thế Binance) ---
+    // Docs: https://coins.llama.fi/chart/{coins}
+    if (type === 'defillama') {
+      const coins = searchParams.get('coins'); // VD: coingecko:bitcoin
+      const start = searchParams.get('start');
+      const span = searchParams.get('span');
+      const period = searchParams.get('period');
       
-      targetUrl = `https://api.binance.com/api/v3/uiKlines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-      
-      // Header riêng cho Binance (Tránh xung đột Alpha)
-      fetchOptions.headers['Referer'] = 'https://www.binance.com/en/trade';
-      fetchOptions.headers['Origin'] = 'https://www.binance.com';
+      targetUrl = `https://coins.llama.fi/chart/${coins}?start=${start}&span=${span}&period=${period}`;
     }
 
-    // --- 2. COINGLASS ETF ---
+    // --- 2. COINGLASS ETF (Giữ nguyên) ---
     else if (type === 'coinglass') {
       targetUrl = 'https://capi.coinglass.com/api/etf/flow';
-      
-      // Header riêng cho CoinGlass
-      fetchOptions.headers['Referer'] = 'https://www.coinglass.com/';
-      fetchOptions.headers['Origin'] = 'https://www.coinglass.com';
     }
 
     else {
       return NextResponse.json({ error: 'Invalid Type' }, { status: 400 });
     }
 
-    // --- GỌI API ---
-    const res = await fetch(targetUrl, fetchOptions);
+    // Gọi API (Không cần Fake Header phức tạp nữa vì DefiLlama rất thoáng)
+    const res = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ...(type === 'coinglass' ? { "Referer": "https://www.coinglass.com/", "Origin": "https://www.coinglass.com" } : {})
+      },
+      next: { revalidate: type === 'defillama' ? 60 : 300 } 
+    });
 
     if (!res.ok) {
-      // Trả về lỗi chi tiết để Frontend biết đường chuyển sang backup
       return NextResponse.json({ error: `Upstream Error ${res.status}` }, { status: res.status });
     }
 

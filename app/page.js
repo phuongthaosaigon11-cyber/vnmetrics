@@ -3,23 +3,17 @@
 import { useEffect, useState } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
-  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
   BarChart2, Lock, Eye, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Server
 } from 'lucide-react';
 
-// --- CẤU HÌNH ---
+// --- 1. CẤU HÌNH ---
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
-
-// Mapping ID
-const BINANCE_PAIR_MAP = {
-  'bitcoin': 'BTCUSDT', 'ethereum': 'ETHUSDT', 'solana': 'SOLUSDT', 'binancecoin': 'BNBUSDT',
-  'ripple': 'XRPUSDT', 'cardano': 'ADAUSDT', 'dogecoin': 'DOGEUSDT', 'tron': 'TRXUSDT'
-};
 
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
@@ -32,13 +26,12 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
-  
-  // Trạng thái nguồn dữ liệu (Để debug)
-  const [dataSource, setDataSource] = useState({ chart: 'Binance', etf: 'CoinGlass' });
+  const [chartType, setChartType] = useState('baseline'); 
+  const [imgError, setImgError] = useState({});
 
-  // --- FORMATTERS ---
+  // --- 2. FORMATTERS ---
   const formatPrice = (price) => {
-    if (!price || isNaN(price)) return 'N/A';
+    if (!price || isNaN(price)) return '0.00';
     if (currency === 'VND') return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(price * EXCHANGE_RATE);
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(price);
   };
@@ -53,103 +46,137 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- FETCH CHART THÔNG MINH (Binance -> CoinGecko Fallback) ---
-  const fetchSmartChart = async (coinId, range) => {
-    let chartData = [];
-    
-    // 1. Thử gọi Binance qua Proxy "nhà làm"
-    try {
-      const symbol = BINANCE_PAIR_MAP[coinId];
-      if (symbol) {
-        let interval = '30m'; let limit = 48;
-        switch(range) {
-            case '1D': interval = '30m'; limit = 48; break;
-            case '1W': interval = '4h'; limit = 42; break;
-            case '1M': interval = '1d'; limit = 30; break;
-            case '1Y': interval = '1w'; limit = 52; break;
-        }
-        
-        const res = await fetch(`/api/proxy?type=binance&symbol=${symbol}&interval=${interval}&limit=${limit}`);
-        if (res.ok) {
-            const raw = await res.json();
-            if (Array.isArray(raw) && raw.length > 0) {
-                const baseline = parseFloat(raw[0][4]);
-                chartData = raw.map(c => ({
-                    time: range === '1D' ? new Date(c[0]).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}) : new Date(c[0]).toLocaleDateString('en-GB', {day:'2-digit', month:'2-digit'}),
-                    fullTime: new Date(c[0]).toLocaleString(),
-                    price: parseFloat(c[4]),
-                    volume: parseFloat(c[5]) * parseFloat(c[4]),
-                    baseline
-                }));
-                setDataSource(prev => ({...prev, chart: 'Binance (Live)'}));
-                return chartData; // Thành công -> Trả về ngay
-            }
-        }
-      }
-    } catch (e) { console.log("Binance Proxy failed, switching to CoinGecko..."); }
-
-    // 2. Nếu Binance thất bại -> Gọi CoinGecko (Backup an toàn)
-    try {
-        let days = '1';
-        if (range === '1W') days = '7';
-        if (range === '1M') days = '30';
-        if (range === '1Y') days = '365';
-
-        const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
-        const data = await res.json();
-        
-        if (data.prices) {
-            const baseline = data.prices[0][1];
-            chartData = data.prices.map((p, i) => ({
-                time: new Date(p[0]).toLocaleDateString(),
-                fullTime: new Date(p[0]).toLocaleString(),
-                price: p[1],
-                volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0,
-                baseline
-            }));
-            setDataSource(prev => ({...prev, chart: 'CoinGecko (Backup)'}));
-        }
-    } catch (e) { console.error("All chart sources failed"); }
-
-    return chartData;
+  // --- 3. CUSTOM TOOLTIP ---
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-2xl text-xs min-w-[200px] z-50 backdrop-blur-md">
+          <div className="text-slate-400 mb-2 font-medium border-b border-[#2B313F] pb-2 flex items-center gap-2">
+             <Clock size={12}/> {data.fullTime}
+          </div>
+          <div className="flex items-center justify-between gap-6">
+             <div className="flex items-center gap-2">
+               <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+               <span className="text-slate-300 font-medium">Price</span>
+             </div>
+             <span className={`font-bold ${jetbrainsMono.className} text-white`}>
+               {formatPrice(data.price)}
+             </span>
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
-  // --- FETCH TỔNG HỢP ---
+  // --- 4. FETCH CHART TỪ DEFILLAMA (COINS API) ---
+  const fetchDefiLlamaChart = async (coinId, range) => {
+    try {
+      // Mapping TimeRange sang tham số DefiLlama
+      let span = 48; 
+      let period = '30m'; 
+      let startTimestamp = Math.floor(Date.now() / 1000);
+
+      switch(range) {
+        case '1D': 
+          span = 48; period = '30m'; // 48 điểm, mỗi điểm 30p = 24h
+          startTimestamp -= 24 * 60 * 60; 
+          break;
+        case '1W': 
+          span = 42; period = '4h'; // 7 ngày
+          startTimestamp -= 7 * 24 * 60 * 60; 
+          break;
+        case '1M': 
+          span = 60; period = '12h'; // 30 ngày
+          startTimestamp -= 30 * 24 * 60 * 60; 
+          break;
+        case '1Y': 
+          span = 52; period = '1w'; // 52 tuần
+          startTimestamp -= 365 * 24 * 60 * 60; 
+          break;
+        case 'ALL':
+           span = 60; period = '1w'; 
+           startTimestamp -= 3 * 365 * 24 * 60 * 60;
+           break;
+        default: 
+          span = 48; period = '30m'; startTimestamp -= 86400;
+      }
+
+      // ID DefiLlama chuẩn: coingecko:bitcoin
+      const defiId = `coingecko:${coinId}`;
+
+      // Gọi qua Proxy để an toàn
+      const res = await fetch(`/api/proxy?type=defillama&coins=${defiId}&start=${startTimestamp}&span=${span}&period=${period}`);
+      
+      if (!res.ok) return [];
+
+      const json = await res.json();
+
+      // Cấu trúc trả về: { coins: { "coingecko:bitcoin": { prices: [...] } } }
+      if (json && json.coins && json.coins[defiId] && json.coins[defiId].prices) {
+        const rawPoints = json.coins[defiId].prices;
+        if (rawPoints.length === 0) return [];
+
+        const baseline = rawPoints[0].price;
+
+        return rawPoints.map(p => {
+           const t = new Date(p.timestamp * 1000);
+           
+           // Format nhãn trục X
+           let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
+           if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
+           
+           // Format Tooltip đầy đủ
+           const fullTime = `${t.getDate()}/${t.getMonth()+1} ${t.getHours()}:${t.getMinutes()}`;
+           
+           return {
+             time: timeLabel,
+             fullTime: fullTime,
+             price: p.price,
+             baseline: baseline,
+             volume: 0 // DefiLlama Chart API không trả volume, chấp nhận ẩn cột volume
+           };
+        });
+      }
+      return []; 
+    } catch (e) {
+      console.error("DefiLlama Chart Error:", e);
+      return []; 
+    }
+  };
+
+  // --- 5. INITIAL DATA ---
   const fetchAllData = async () => {
     setLoading(true);
 
-    // 1. Market Data (CoinGecko)
+    // 1. MARKET (CoinGecko)
     try {
       const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron&order=market_cap_desc&per_page=10&page=1&sparkline=false');
+      if (!cgRes.ok) throw new Error("CoinGecko Limit");
       const cgData = await cgRes.json();
       
-      if (Array.isArray(cgData)) {
-          // Load chart cho coin đầu tiên
-          const firstChart = await fetchSmartChart(cgData[0].id, timeRange);
-          
-          const processed = cgData.map((coin, idx) => ({
-            ...coin, symbol: coin.symbol.toUpperCase(),
-            chartData: idx === 0 ? firstChart : []
-          }));
-          setCryptos(processed);
-          if (!selectedCoin) setSelectedCoin(processed[0]);
-      }
-    } catch (e) { console.error("Market Data Error"); }
+      const firstCoinChart = await fetchDefiLlamaChart(cgData[0].id, timeRange);
+      
+      const processed = cgData.map((coin, idx) => ({
+        ...coin, symbol: coin.symbol.toUpperCase(),
+        chartData: idx === 0 ? firstCoinChart : []
+      }));
+      setCryptos(processed);
+      if (!selectedCoin) setSelectedCoin(processed[0]);
+    } catch (e) { console.error(e); }
 
     // 2. ETF (CoinGlass Proxy)
     try {
        const etfRes = await fetch('/api/proxy?type=coinglass');
-       if (etfRes.ok) {
-           const etfJson = await etfRes.json();
-           if (etfJson.data) {
-               const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
-               setEtfs(etfJson.data.filter(i => target.includes(i.ticker)));
-               setDataSource(prev => ({...prev, etf: 'CoinGlass (Live)'}));
-           }
+       const etfJson = await etfRes.json();
+       if (etfJson.data) {
+          const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
+          setEtfs(etfJson.data.filter(i => target.includes(i.ticker)));
        }
     } catch (e) { console.error("ETF Error"); }
 
-    // 3. DEX (DefiLlama)
+    // 3. DEX (DefiLlama Public)
     try {
        const dexRes = await fetch('https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume');
        const dexData = await dexRes.json();
@@ -172,9 +199,10 @@ export default function Home() {
     fetchAllData();
   }, []);
 
+  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
     if (!coin.chartData || coin.chartData.length === 0) {
-      const chart = await fetchSmartChart(coin.id, timeRange); // Dùng hàm thông minh
+      const chart = await fetchDefiLlamaChart(coin.id, timeRange);
       const updatedCoin = { ...coin, chartData: chart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
@@ -184,130 +212,156 @@ export default function Home() {
   const handleTimeChange = async (range) => {
     setTimeRange(range);
     if (selectedCoin) {
-      const chart = await fetchSmartChart(selectedCoin.id, range);
+      const chart = await fetchDefiLlamaChart(selectedCoin.id, range);
       const updatedCoin = { ...selectedCoin, chartData: chart };
       setSelectedCoin(updatedCoin);
       setCryptos(prev => prev.map(c => c.id === selectedCoin.id ? updatedCoin : c));
     }
   };
 
-  const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-xl text-xs min-w-[180px]">
-          <div className="text-slate-400 mb-2 flex items-center gap-2"><Clock size={12}/>{payload[0].payload.fullTime}</div>
-          <div className="flex justify-between items-center mb-1">
-             <span className="text-slate-400">Price</span>
-             <span className={`text-white font-bold ${jetbrainsMono.className}`}>{formatPrice(payload[0].payload.price)}</span>
-          </div>
-          {payload[0].payload.volume > 0 && <div className="text-slate-300">Vol: {formatCompact(payload[0].payload.volume)}</div>}
-        </div>
-      );
-    }
-    return null;
+  const handleImgError = (symbol) => {
+    setImgError(prev => ({ ...prev, [symbol]: true }));
   };
+
+  const getGradientOffset = (data) => {
+    if (!data || data.length === 0) return 0;
+    const dataMax = Math.max(...data.map((i) => i.price));
+    const dataMin = Math.min(...data.map((i) => i.price));
+    const baseline = data[0].baseline;
+    if (dataMax <= dataMin) return 0;
+    if (baseline >= dataMax) return 0; 
+    if (baseline <= dataMin) return 1; 
+    return (dataMax - baseline) / (dataMax - dataMin);
+  };
+
+  const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
+      
       {showConsent && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6 flex justify-between items-center animate-in slide-in-from-bottom">
-          <div className="text-sm text-slate-600"><ShieldAlert size={18} className="inline mr-2 text-blue-600"/>VNMetrics tuân thủ Nghị quyết 05/2025/NQ-CP.</div>
-          <button onClick={() => {localStorage.setItem('vnmetrics_consent', 'true'); setShowConsent(false)}} className="bg-slate-900 text-white font-bold py-2 px-6 rounded hover:bg-slate-800">Đồng ý</button>
+        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6 animate-in slide-in-from-bottom duration-500">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="text-sm text-slate-600"><ShieldAlert size={18} className="text-blue-600 inline mr-2"/><strong>Cảnh báo:</strong> VNMetrics tuân thủ Nghị quyết 05/2025/NQ-CP.</div>
+            <button onClick={() => {localStorage.setItem('vnmetrics_consent', 'true'); setShowConsent(false)}} className="bg-slate-900 text-white font-bold py-2 px-6 rounded hover:bg-slate-800">Đồng ý</button>
+          </div>
         </div>
       )}
 
       {/* TOP BAR */}
-      <div className="bg-slate-900 text-slate-400 text-[11px] py-2 border-b border-slate-800 px-4 flex justify-between">
-         <div className="flex gap-6">
-            <span className="flex items-center gap-1"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold ml-1">${formatCompact(globalStats.tvl)}</span></span>
-            <span className="flex items-center gap-1 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
-         </div>
-         <div className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${dataSource.chart.includes('Binance') ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-            <span>Source: {dataSource.chart} & {dataSource.etf}</span>
+      <div className="bg-slate-900 text-slate-400 text-[11px] py-2 border-b border-slate-800">
+         <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
+            <div className="flex gap-6">
+               <span className="flex items-center gap-1.5"><Globe size={12}/> Global TVL: <span className="text-blue-400 font-bold">${formatCompact(globalStats.tvl)}</span></span>
+               <span className="flex items-center gap-1.5 text-green-400 font-bold"><Repeat size={12}/> 1 USDT ≈ {EXCHANGE_RATE.toLocaleString()} VND</span>
+            </div>
+            <div className="flex gap-2 items-center"><span>DefiLlama Coins API Live</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
          </div>
       </div>
 
       {/* HEADER */}
-      <nav className="bg-white border-b sticky top-0 z-50 shadow-sm px-4 h-16 flex justify-between items-center">
-         <div className="flex items-center gap-2 font-extrabold text-xl text-slate-900"><Zap size={24} className="text-blue-600"/> VNMetrics</div>
-         <div className="hidden md:flex bg-slate-100 p-1 rounded-lg">
-            {['market', 'etf', 'dex'].map(t => (
-               <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-1.5 text-sm font-bold rounded-md capitalize transition ${activeTab===t ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>{t === 'etf' ? 'ETF Tracker' : t}</button>
-            ))}
-         </div>
-         <div className="flex gap-2">
-            <button onClick={() => setCurrency(currency==='USD'?'VND':'USD')} className="px-3 py-1.5 bg-slate-100 rounded text-xs font-bold border w-16 hover:bg-slate-200 transition">{currency}</button>
-            <button className="bg-slate-900 text-white px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 hover:bg-slate-800 transition"><Lock size={14}/> Login</button>
-         </div>
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-blue-700 text-white p-1.5 rounded-lg"><Zap size={20} fill="currentColor" /></div>
+            <span className="font-extrabold text-xl tracking-tight text-slate-900">VNMetrics<span className="text-blue-600">.io</span></span>
+          </div>
+          
+          <div className="hidden md:flex gap-1 bg-slate-100 p-1 rounded-lg">
+             {['market', 'etf', 'dex'].map((tab) => (
+                <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-1.5 text-sm font-bold rounded-md transition capitalize ${activeTab === tab ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{tab === 'etf' ? 'ETF Tracker' : tab}</button>
+             ))}
+          </div>
+
+          <div className="flex items-center gap-4">
+             <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
+                <button onClick={() => setCurrency('USD')} className={`px-3 py-1 text-xs font-bold rounded transition ${currency==='USD'?'bg-white text-green-700 shadow-sm':'text-slate-500'}`}>USD</button>
+                <button onClick={() => setCurrency('VND')} className={`px-3 py-1 text-xs font-bold rounded transition ${currency==='VND'?'bg-white text-red-700 shadow-sm':'text-slate-500'}`}>VND</button>
+             </div>
+             <button className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800 transition"><Lock size={14}/> Login</button>
+          </div>
+        </div>
       </nav>
 
       {/* MARKET TAB */}
       {activeTab === 'market' && (
         <>
-          <div className="bg-white border-b py-6 px-4">
-             <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
-                {cryptos.length === 0 ? <div className="col-span-5 text-center py-4 text-slate-400">Đang tải dữ liệu thị trường...</div> : 
-                cryptos.slice(0, 5).map(c => (
-                   <div key={c.id} onClick={() => handleSelectCoin(c)} className={`p-4 rounded-xl border cursor-pointer transition hover:-translate-y-1 bg-white ${selectedCoin?.id===c.id ? 'ring-2 ring-blue-500' : ''}`}>
-                      <div className="flex justify-between items-center mb-2"><span className="font-bold text-slate-700">{c.symbol}</span><span className={c.price_change_percentage_24h>=0?'text-green-500':'text-red-500'}>{c.price_change_percentage_24h?.toFixed(2)}%</span></div>
-                      <div className={`text-lg font-bold ${jetbrainsMono.className}`}>{formatPrice(c.current_price)}</div>
-                   </div>
+          <div className="bg-white border-b border-slate-200 py-6">
+            <div className="max-w-7xl mx-auto px-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {cryptos.slice(0, 5).map((coin) => (
+                  <div key={coin.id} onClick={() => handleSelectCoin(coin)} className={`p-4 rounded-xl border cursor-pointer transition hover:-translate-y-1 bg-white ${selectedCoin?.id === coin.id ? 'ring-2 ring-blue-500 shadow-md border-blue-500' : 'hover:shadow-lg'}`}>
+                    <div className="flex justify-between items-center mb-2"><span className="font-bold text-sm text-slate-700">{coin.symbol}</span><span className={coin.price_change_percentage_24h>=0?'text-green-500':'text-red-500'}>{coin.price_change_percentage_24h?.toFixed(2)}%</span></div>
+                    <div className={`text-lg font-bold ${jetbrainsMono.className}`}>{formatPrice(coin.current_price)}</div>
+                  </div>
                 ))}
-             </div>
+              </div>
+            </div>
           </div>
 
           {selectedCoin && (
-             <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border shadow-sm h-[500px] flex flex-col">
-                   <div className="flex justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                         <img src={selectedCoin.image} className="w-10 h-10 rounded-full border"/>
-                         <div><div className="text-2xl font-black">{selectedCoin.name}</div><div className="text-slate-500">{formatPrice(selectedCoin.current_price)}</div></div>
-                      </div>
-                      <div className="flex bg-slate-100 rounded p-1 h-fit">
-                         {['1D','1W','1M','1Y'].map(r => <button key={r} onClick={() => handleTimeChange(r)} className={`px-3 py-1 text-xs font-bold rounded ${timeRange===r?'bg-white shadow':''}`}>{r}</button>)}
-                      </div>
-                   </div>
-                   <div className="flex-grow w-full">
-                      {selectedCoin.chartData?.length > 0 ? (
-                         <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={selectedCoin.chartData}>
-                               <defs><linearGradient id="grad" x1="0" y1="0" x2="0" y2="1"><stop offset={0} stopColor="#3B82F6" stopOpacity={0.2}/><stop offset={1} stopColor="#3B82F6" stopOpacity={0}/></linearGradient></defs>
-                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9"/>
-                               <XAxis dataKey="time" tick={{fontSize:10}} axisLine={false} tickLine={false} minTickGap={30}/>
-                               <YAxis orientation="right" domain={['auto','auto']} tick={{fontSize:11, fontFamily:'monospace'}} tickFormatter={v => currency==='VND'?'':v.toLocaleString()}/>
-                               <Tooltip content={<CustomTooltip/>}/>
-                               <Area type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#grad)" strokeWidth={2}/>
-                            </ComposedChart>
-                         </ResponsiveContainer>
-                      ) : <div className="h-full flex items-center justify-center text-slate-400 border border-dashed rounded bg-slate-50"><Activity className="mr-2"/> Đang tải biểu đồ...</div>}
-                   </div>
+            <div className="max-w-7xl mx-auto px-4 mt-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
+                  <div className="flex flex-col md:flex-row justify-between mb-6 gap-4">
+                    <div className="flex items-center gap-4">
+                       {imgError[selectedCoin.symbol] ? <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center border"><Bitcoin/></div> : <img src={selectedCoin.image} className="w-12 h-12 rounded-full border p-0.5 bg-white" onError={() => handleImgError(selectedCoin.symbol)}/>}
+                       <div><h2 className="text-3xl font-black text-slate-900">{selectedCoin.name}</h2><div className="flex items-center gap-3 mt-1"><span className={`text-2xl font-bold ${jetbrainsMono.className}`}>{formatPrice(selectedCoin.current_price)}</span></div></div>
+                    </div>
+                    <div className="flex bg-slate-100 rounded-lg p-1 border h-fit">
+                       {['1D', '1W', '1M', '1Y', 'ALL'].map((r) => <button key={r} onClick={() => handleTimeChange(r)} className={`px-3 py-1 text-xs font-bold rounded transition ${timeRange===r ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'}`}>{r}</button>)}
+                    </div>
+                  </div>
+
+                  <div className="flex-grow w-full relative min-h-[350px]">
+                     {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-slate-400"><Activity className="mb-2"/> Đang tải dữ liệu DefiLlama...</div>
+                     ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={selectedCoin.chartData}>
+                            <defs>
+                              <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /></linearGradient>
+                              <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} /></linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                            <XAxis dataKey="time" tick={{fontSize: 10}} axisLine={false} tickLine={false} minTickGap={40}/>
+                            <YAxis orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fontFamily: 'monospace'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8' }} />
+                            <ReferenceLine y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
+                            <Area type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                     )}
+                  </div>
                 </div>
+
                 <div className="lg:col-span-1 space-y-4">
-                   <div className="bg-white p-6 rounded-2xl border shadow-sm">
-                      <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Globe size={16}/> Market Stats</h3>
-                      <div className="space-y-3 text-sm">
-                         <div className="flex justify-between"><span className="text-slate-500">Market Cap</span><span className={`font-bold ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.market_cap)}</span></div>
-                         <div className="flex justify-between"><span className="text-slate-500">Volume 24h</span><span className={`font-bold ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.total_volume)}</span></div>
+                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                      <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Globe size={16}/> Market Stats</h3>
+                      <div className="space-y-3">
+                         <div className="flex justify-between"><span className="text-sm text-slate-500">Market Cap</span><span className={`font-bold ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.market_cap)}</span></div>
+                         <div className="flex justify-between"><span className="text-sm text-slate-500">Volume (24h)</span><span className={`font-bold ${jetbrainsMono.className}`}>{formatCompact(selectedCoin.total_volume)}</span></div>
+                         <div className="flex justify-between"><span className="text-sm text-slate-500">TVL</span><span className={`font-bold text-blue-600 ${jetbrainsMono.className}`}>{selectedCoin.tvl ? formatCompact(selectedCoin.tvl) : 'N/A'}</span></div>
                       </div>
                    </div>
-                   <div className="bg-white p-6 rounded-2xl border shadow-sm">
-                      <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><TrendingUp size={16}/> 24h Range</h3>
-                      <div className="flex justify-between text-xs font-bold mb-1"><span>{formatPrice(selectedCoin.low_24h)}</span><span>{formatPrice(selectedCoin.high_24h)}</span></div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${((selectedCoin.current_price-selectedCoin.low_24h)/(selectedCoin.high_24h-selectedCoin.low_24h))*100}%`}}></div></div>
+                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                      <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4">Price Range (24h)</h3>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1"><span>{formatPrice(selectedCoin.low_24h)}</span><span>{formatPrice(selectedCoin.high_24h)}</span></div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width: `${((selectedCoin.current_price - selectedCoin.low_24h)/(selectedCoin.high_24h - selectedCoin.low_24h))*100}%`}}></div></div>
                    </div>
                 </div>
-             </div>
+              </div>
+            </div>
           )}
 
           <div className="max-w-7xl mx-auto px-4 mt-8 mb-8">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-lg flex items-center gap-2"><BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết</h3></div>
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-lg flex items-center gap-2"><BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết</h3></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                    <tr><th className="px-6 py-4">Tài sản</th><th className="px-6 py-4 text-right">Giá</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">Market Cap</th><th className="px-6 py-4 text-right">Thao tác</th></tr>
+                    <tr><th className="px-6 py-4">Tài sản</th><th className="px-6 py-4 text-right">Giá</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">Market Cap</th><th className="px-6 py-4 text-right">TVL</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {cryptos.map((coin) => (
@@ -316,7 +370,7 @@ export default function Home() {
                         <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatPrice(coin.current_price)}</td>
                         <td className={`px-6 py-4 text-right font-bold ${coin.price_change_percentage_24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>{coin.price_change_percentage_24h?.toFixed(2)}%</td>
                         <td className={`px-6 py-4 text-right ${jetbrainsMono.className}`}>{formatCompact(coin.market_cap)}</td>
-                        <td className="px-6 py-4 text-right"><button className="text-xs bg-slate-100 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded font-bold transition flex items-center gap-1 ml-auto"><Eye size={12}/> Xem</button></td>
+                        <td className={`px-6 py-4 text-right ${jetbrainsMono.className}`}>{coin.tvl ? formatCompact(coin.tvl) : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -332,14 +386,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
               <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF (Nguồn: CoinGlass)</h3>
-              
-              {etfs.length === 0 ? (
-                 <div className="text-center py-10">
-                    <Server size={48} className="mx-auto text-slate-300 mb-3"/>
-                    <p className="text-slate-500 font-bold">Đang tải dữ liệu từ Server...</p>
-                    <p className="text-sm text-slate-400 mt-2">Nếu không hiện sau 5s, vui lòng refresh.</p>
-                 </div>
-              ) : (
+              {etfs.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
@@ -352,15 +399,13 @@ export default function Home() {
                           <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
                           <td className={`px-6 py-4 text-right font-medium ${jetbrainsMono.className}`}>{formatPrice(etf.price || etf.closePrice)}</td>
                           <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatCompact(etf.aum)}</td>
-                          <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                             {etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}
-                          </td>
+                          <td className={`px-6 py-4 text-right font-bold ${etf.flow >= 0 ? 'text-green-600' : 'text-red-600'}`}>{etf.flow > 0 ? '+' : ''}{formatCompact(etf.flow)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
+              ) : <div className="text-center py-10 text-slate-400">Đang tải dữ liệu...</div>}
            </div>
         </div>
       )}
@@ -392,7 +437,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* FOOTER */}
+      {/* FOOTER (Giữ nguyên) */}
       <footer className="bg-white border-t border-slate-200 mt-16 pt-10 pb-6 text-slate-600">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
            <div className="col-span-1 md:col-span-2">
@@ -408,8 +453,7 @@ export default function Home() {
               <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Dữ liệu & Đối tác</h4>
               <ul className="space-y-2 text-sm text-slate-500">
                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div> CoinGecko (Market Data)</li>
-                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></div> Binance (Realtime Chart)</li>
-                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div> DefiLlama (On-chain & DEX)</li>
+                 <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></div> DefiLlama (Chart & DEX)</li>
                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> CoinGlass (ETF Flows)</li>
               </ul>
            </div>
