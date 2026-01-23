@@ -7,16 +7,16 @@ import {
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe, TrendingUp, AlertTriangle, Clock
+  ChevronDown, ChevronUp, FileText, Settings, BarChart2, Lock, Eye, Bitcoin, Info, CircleDollarSign, Activity, Database, Layers, Globe, TrendingUp, AlertTriangle, Clock, Hash, DollarSign
 } from 'lucide-react';
 
 // --- 1. CẤU HÌNH FONT ---
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
-// --- 2. HÀM FORMAT & UTILS ---
+// --- 2. HÀM FORMAT ---
 const formatCompactNumber = (number) => {
-  if (number === null || number === undefined) return 'N/A';
+  if (number === null || number === undefined || isNaN(number)) return 'N/A';
   if (number >= 1.0e+12) return (number / 1.0e+12).toFixed(2) + "T";
   if (number >= 1.0e+9) return (number / 1.0e+9).toFixed(2) + "B";
   if (number >= 1.0e+6) return (number / 1.0e+6).toFixed(2) + "M";
@@ -28,7 +28,7 @@ const formatPrice = (price) => {
   return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 };
 
-// --- 3. CUSTOM TOOLTIP (Pro Dark Mode) ---
+// --- 3. CUSTOM TOOLTIP ---
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -47,17 +47,7 @@ const CustomTooltip = ({ active, payload, label }) => {
                ${formatPrice(data.price)}
              </span>
           </div>
-          {data.volume > 0 && (
-            <div className="flex items-center justify-between gap-6">
-               <div className="flex items-center gap-2">
-                 <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
-                 <span className="text-slate-300 font-medium">Vol (Est.)</span>
-               </div>
-               <span className={`font-bold ${jetbrainsMono.className} text-slate-200 text-[13px]`}>
-                 ${formatCompactNumber(data.volume)}
-               </span>
-            </div>
-          )}
+          {/* Note: Volume là 0 vì DefiLlama chart không trả volume */}
         </div>
       </div>
     );
@@ -65,31 +55,56 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-// --- 4. FETCH CHART TỪ DEFILLAMA (KHÔNG FAKE DATA) ---
+// --- 4. FETCH CHART TỪ DEFILLAMA (LOGIC FIX) ---
 const fetchDefiLlamaChart = async (coinDefiId, range) => {
   try {
-    let span = 2; let period = '24h';
-    // Mapping range chuẩn DefiLlama
-    if (range === '1W') { span = 6; period = '1w'; }
-    if (range === '1M') { span = 12; period = '1m'; }
-    if (range === '1Y') { span = 24; period = '1y'; }
-    if (range === 'ALL') { span = 24; period = '1y'; }
+    // Cấu hình tham số chuẩn để API luôn trả về dữ liệu dày đặc
+    let span = 48; // Số lượng điểm
+    let period = '30m'; // Độ phân giải
+    let startTimestamp = Math.floor(Date.now() / 1000);
 
-    const res = await fetch(`https://coins.llama.fi/chart/${coinDefiId}?start=${Math.floor(Date.now()/1000) - (range === '1D' ? 86400 : 31536000)}&span=${span}&period=${period}`);
+    switch(range) {
+      case '1D': 
+        span = 48; period = '30m'; 
+        startTimestamp -= 24 * 60 * 60; // 24h trước
+        break;
+      case '1W': 
+        span = 42; period = '4h'; 
+        startTimestamp -= 7 * 24 * 60 * 60; 
+        break;
+      case '1M': 
+        span = 30; period = '1d'; 
+        startTimestamp -= 30 * 24 * 60 * 60; 
+        break;
+      case '1Y': 
+        span = 52; period = '1w'; 
+        startTimestamp -= 365 * 24 * 60 * 60; 
+        break;
+      case 'ALL':
+         span = 60; period = '1w'; // Lấy tượng trưng
+         startTimestamp -= 3 * 365 * 24 * 60 * 60;
+         break;
+      default: 
+        span = 48; period = '30m'; startTimestamp -= 86400;
+    }
+
+    const url = `https://coins.llama.fi/chart/${coinDefiId}?start=${startTimestamp}&span=${span}&period=${period}`;
+    const res = await fetch(url);
     
-    if (!res.ok) return []; // API lỗi trả về rỗng
+    if (!res.ok) return [];
 
     const json = await res.json();
 
     if (json && json.coins && json.coins[coinDefiId] && json.coins[coinDefiId].length > 0) {
       const rawPoints = json.coins[coinDefiId];
-      // Lấy baseline là giá đầu tiên
       const baseline = rawPoints[0].price;
 
       return rawPoints.map(p => {
          const t = new Date(p.timestamp * 1000);
+         // Format nhãn trục X
          let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
          if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
+         // Format Tooltip
          const fullTime = `${t.getDate().toString().padStart(2,'0')}/${(t.getMonth()+1).toString().padStart(2,'0')}/${t.getFullYear()} ${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}`;
          
          return {
@@ -97,14 +112,14 @@ const fetchDefiLlamaChart = async (coinDefiId, range) => {
            fullTime: fullTime,
            price: p.price,
            baseline: baseline,
-           volume: 0 // DefiLlama chart API không có volume, để 0, KHÔNG random fake
+           volume: 0 // API này không có volume, để 0
          };
       });
     }
-    return []; // Không có data
+    return []; 
   } catch (e) {
     console.error("Chart Fetch Error:", e);
-    return []; // Lỗi mạng trả về rỗng
+    return []; 
   }
 };
 
@@ -118,9 +133,8 @@ export default function Home() {
   const [chartType, setChartType] = useState('baseline'); 
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
-  const [globalStats, setGlobalStats] = useState({ tvl: 0, vol24h: 0 });
+  const [globalStats, setGlobalStats] = useState({ tvl: 0 });
 
-  // --- 5. DATA FETCHING (COINGECKO + DEFILLAMA) ---
   useEffect(() => {
     const hasConsented = localStorage.getItem('vnmetrics_consent');
     if (!hasConsented) setShowConsent(true);
@@ -128,22 +142,21 @@ export default function Home() {
     const initData = async () => {
       try {
         setLoading(true);
-        // A. Lấy Global TVL từ DefiLlama (Uy tín)
+        // A. Global TVL
         const chainsRes = await fetch('https://api.llama.fi/v2/chains');
         const chainsData = await chainsRes.json();
         const totalTvl = chainsData.reduce((acc, curr) => acc + (curr.tvl || 0), 0);
-        setGlobalStats({ tvl: totalTvl, vol24h: 0 });
+        setGlobalStats({ tvl: totalTvl });
 
-        // B. Lấy Market Data từ CoinGecko (Giá, Vol, Mcap, ATH, ATL)
-        // Lưu ý: CoinGecko Public API giới hạn rate limit. Nếu lỗi sẽ catch bên dưới.
-        const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron&order=market_cap_desc&per_page=8&page=1&sparkline=false');
+        // B. CoinGecko Market Data
+        const cgRes = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
         
-        if (!cgRes.ok) throw new Error("CoinGecko API Limit/Error");
+        if (!cgRes.ok) throw new Error("CoinGecko API Limit");
         
         const cgData = await cgRes.json();
 
-        // C. Map dữ liệu & Lấy Chart ban đầu cho coin top 1
-        // ID Mapping cho DefiLlama Chart
+        // C. Map & Load Initial Chart
+        // Mapping chính xác ID
         const defiLlamaIds = {
           'bitcoin': 'coingecko:bitcoin',
           'ethereum': 'coingecko:ethereum',
@@ -152,46 +165,30 @@ export default function Home() {
           'ripple': 'coingecko:ripple',
           'cardano': 'coingecko:cardano',
           'dogecoin': 'coingecko:dogecoin',
-          'tron': 'coingecko:tron'
+          'tron': 'coingecko:tron',
+          'polkadot': 'coingecko:polkadot',
+          'avalanche-2': 'coingecko:avalanche-2'
         };
 
-        // Xử lý từng coin
         const processed = await Promise.all(cgData.map(async (coin, index) => {
            const defiId = defiLlamaIds[coin.id] || `coingecko:${coin.id}`;
            
-           // Chỉ load chart cho coin đầu tiên để tiết kiệm request ban đầu
+           // Load chart cho coin đầu tiên
            let chart = [];
            if (index === 0) {
              chart = await fetchDefiLlamaChart(defiId, '1D');
            }
 
-           // Lấy TVL riêng nếu có (từ mảng chainsData)
+           // TVL riêng
            const chainInfo = chainsData.find(c => c.name.toLowerCase() === coin.name.toLowerCase());
-           const tvl = chainInfo ? chainInfo.tvl : 0;
+           const tvl = chainInfo ? chainInfo.tvl : null;
 
            return {
-             id: coin.id,
-             defiId: defiId, // ID dùng để gọi chart
+             ...coin, // Giữ lại toàn bộ field gốc của CG
+             defiId: defiId,
              symbol: coin.symbol.toUpperCase(),
-             name: coin.name,
-             image: coin.image,
-             current_price: coin.current_price,
-             market_cap: coin.market_cap,
-             market_cap_rank: coin.market_cap_rank,
-             fully_diluted_valuation: coin.fully_diluted_valuation,
-             total_volume: coin.total_volume,
-             high_24h: coin.high_24h,
-             low_24h: coin.low_24h,
-             price_change_percentage_24h: coin.price_change_percentage_24h,
-             circulating_supply: coin.circulating_supply,
-             total_supply: coin.total_supply,
-             max_supply: coin.max_supply,
-             ath: coin.ath,
-             ath_change_percentage: coin.ath_change_percentage,
-             atl: coin.atl,
-             atl_change_percentage: coin.atl_change_percentage,
              tvl: tvl,
-             compliance_score: 90 + (index % 10), // Điểm giả định vì API không có
+             compliance_score: 90 + (index % 10),
              chartData: chart
            };
         }));
@@ -201,8 +198,8 @@ export default function Home() {
         setApiError(false);
 
       } catch (err) {
-        console.error("Data Init Error:", err);
-        setApiError(true); // Hiển thị lỗi UI nếu không lấy được data
+        console.error("Init Error:", err);
+        setApiError(true);
       } finally {
         setLoading(false);
       }
@@ -211,9 +208,7 @@ export default function Home() {
     initData();
   }, []);
 
-  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
-    // Nếu chưa có chart data thì fetch
     if (!coin.chartData || coin.chartData.length === 0) {
       const newChart = await fetchDefiLlamaChart(coin.defiId, timeRange);
       const updatedCoin = { ...coin, chartData: newChart };
@@ -251,7 +246,6 @@ export default function Home() {
 
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
   
-  // Dữ liệu pháp lý (ĐẦY ĐỦ)
   const faqs = [
     {
       question: "Tài sản mã hóa có được coi là tài sản hợp pháp không?",
@@ -274,7 +268,6 @@ export default function Home() {
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
       
-      {/* BANNER PHÁP LÝ */}
       {showConsent && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6 animate-in slide-in-from-bottom duration-500">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
@@ -288,6 +281,19 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* TOP BAR */}
+      <div className="bg-slate-900 text-slate-400 text-[11px] py-1.5 border-b border-slate-800">
+         <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
+            <div className="flex gap-4">
+               <span>Global DeFi TVL: <span className="text-blue-400 font-bold">${formatCompactNumber(globalStats.tvl)}</span></span>
+            </div>
+            <div className="flex gap-2">
+               <span>DefiLlama API Live</span>
+               <div className="w-2 h-2 rounded-full bg-green-500 mt-1"></div>
+            </div>
+         </div>
+      </div>
 
       {/* HEADER */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)]">
@@ -307,10 +313,10 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* WARNING NẾU API LỖI */}
+      {/* ALERT ERROR */}
       {apiError && (
         <div className="bg-red-50 text-red-700 px-4 py-2 text-center text-sm font-bold border-b border-red-100 flex items-center justify-center gap-2">
-           <AlertTriangle size={16}/> Không thể kết nối API CoinGecko (Rate Limited). Vui lòng thử lại sau ít phút.
+           <AlertTriangle size={16}/> Không thể tải dữ liệu thị trường (API Error). Vui lòng tải lại trang sau ít phút.
         </div>
       )}
 
@@ -322,15 +328,12 @@ export default function Home() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-600"></span>
             </span>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Thị trường Trực tiếp (Global)
-            </h2>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">Thị trường Trực tiếp</h2>
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {loading ? (
-               // Skeleton Loading
-               Array(5).fill(0).map((_, i) => <div key={i} className="h-28 bg-slate-100 rounded-xl animate-pulse"></div>)
+               Array(5).fill(0).map((_, i) => <div key={i} className="h-28 bg-slate-50 rounded-xl animate-pulse"></div>)
             ) : (
               cryptos.slice(0, 5).map((coin) => {
                 const isUp = coin.price_change_percentage_24h >= 0;
@@ -370,8 +373,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 mt-8">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* CỘT TRÁI: CHART */}
-            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full">
+            {/* CHART AREA */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
               <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
                 <div className="flex items-center gap-4">
                    {imgError[selectedCoin.symbol] ? (
@@ -415,8 +418,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="h-[400px] w-full relative flex-grow min-h-[400px]">
-                 {/* Xử lý trường hợp KHÔNG có dữ liệu */}
+              <div className="flex-grow w-full relative min-h-[350px]">
                  {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-300">
                       <Activity size={48} className="text-slate-300 mb-2"/>
@@ -424,151 +426,131 @@ export default function Home() {
                       <p className="text-xs text-slate-400 mt-1">DefiLlama API might be unavailable for this pair/range.</p>
                     </div>
                  ) : (
-                    <>
-                      {chartType === 'baseline' && (
-                        <div className="absolute top-2 left-2 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded text-[10px] font-semibold text-slate-400 border border-slate-200 flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
-                          Ref: ${formatPrice(selectedCoin.chartData[0].baseline)}
-                        </div>
-                      )}
-                      
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} />
-                              <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} />
-                            </linearGradient>
-                            <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
-                              <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
-                            </linearGradient>
-                            <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={selectedCoin.chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} />
+                            <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} />
+                          </linearGradient>
+                          <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} />
+                            <stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} />
+                          </linearGradient>
+                          <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
 
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                          <XAxis dataKey="time" tick={{fontSize: 11, fill: '#94A3B8', fontFamily: 'var(--font-inter)'}} axisLine={false} tickLine={false} minTickGap={40} />
-                          <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fill: '#64748B', fontFamily: 'var(--font-mono)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `$${val.toLocaleString()}`} />
-                          <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '4 4' }} />
-                          
-                          {/* Ẩn Bar volume nếu volume = 0 để tránh vạch xấu */}
-                          {/* <Bar yAxisId="volume" ... /> - Đã bỏ vì DefiLlama Chart không có Vol */}
-
-                          {chartType === 'baseline' && (
-                            <>
-                              <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
-                              <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
-                            </>
-                          )}
-
-                          {chartType === 'mountain' && (
-                            <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
-                          )}
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                        <XAxis dataKey="time" tick={{fontSize: 11, fill: '#94A3B8', fontFamily: 'var(--font-inter)'}} axisLine={false} tickLine={false} minTickGap={40} />
+                        <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fill: '#64748B', fontFamily: 'var(--font-mono)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `$${val.toLocaleString()}`} />
+                        <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#94A3B8', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                        
+                        {chartType === 'baseline' && selectedCoin.chartData[0] && (
+                          <>
+                            <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
+                            <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                          </>
+                        )}
+                        {chartType === 'mountain' && (
+                          <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} animationDuration={500} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                        )}
+                      </ComposedChart>
+                    </ResponsiveContainer>
                  )}
               </div>
             </div>
 
-            {/* CỘT PHẢI: STATS PRO (GIAO DIỆN LƯỚI & THANH PROGRESS) */}
-            <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
-              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-4">
-                <Activity size={20} className="text-blue-600"/> Chỉ số thị trường
-              </h3>
-
-              {/* 1. Market Data Section */}
-              <div className="grid grid-cols-1 gap-5">
-                {[
-                  { label: "Market Cap", value: selectedCoin.market_cap, icon: <Globe size={14}/> },
-                  { label: "Volume (24h)", value: selectedCoin.total_volume, icon: <TrendingUp size={14}/> },
-                  { label: "Fully Diluted (FDV)", value: selectedCoin.fully_diluted_valuation, icon: <Info size={14}/> },
-                  { label: "Total Value Locked (TVL)", value: selectedCoin.tvl, icon: <Layers size={14}/> },
-                ].map((item, idx) => (
-                   <div key={idx} className="flex justify-between items-center py-1">
-                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">{item.icon} {item.label}</div>
-                      <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>
-                        {item.value ? `$${formatCompactNumber(item.value)}` : <span className="text-slate-300">N/A</span>}
-                      </div>
-                   </div>
-                ))}
-              </div>
-              
-              <div className="border-t border-slate-100 my-2"></div>
-
-              {/* 2. 24h Range Bar */}
-              <div className="space-y-2">
-                 <div className="flex justify-between text-xs font-bold text-slate-500">
-                    <span>Low: ${formatPrice(selectedCoin.low_24h)}</span>
-                    <span>High: ${formatPrice(selectedCoin.high_24h)}</span>
-                 </div>
-                 <div className="w-full h-2 bg-slate-100 rounded-full relative overflow-hidden">
-                    {/* Tính % vị trí giá hiện tại */}
-                    <div 
-                      className="absolute top-0 bottom-0 bg-slate-800 rounded-full"
-                      style={{
-                        left: `${((selectedCoin.current_price - selectedCoin.low_24h) / (selectedCoin.high_24h - selectedCoin.low_24h)) * 100}%`,
-                        width: '6px',
-                        transform: 'translateX(-50%)'
-                      }}
-                    ></div>
-                    {/* Thanh Range */}
-                    <div className="w-full h-full bg-gradient-to-r from-red-400 via-yellow-400 to-green-400 opacity-30"></div>
-                 </div>
-                 <div className="text-center text-[10px] text-slate-400 font-medium mt-1">24 Hour Range</div>
-              </div>
-
-              <div className="border-t border-slate-100 my-2"></div>
-
-              {/* 3. Historical Data (ATH/ATL) */}
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center">
-                    <div className="text-sm text-slate-500 font-medium">All Time High</div>
-                    <div className="text-right">
-                       <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.ath)}</div>
-                       <div className="text-xs text-red-500 font-bold">{selectedCoin.ath_change_percentage?.toFixed(2)}%</div>
-                    </div>
-                 </div>
-                 <div className="flex justify-between items-center">
-                    <div className="text-sm text-slate-500 font-medium">All Time Low</div>
-                    <div className="text-right">
-                       <div className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.atl)}</div>
-                       <div className="text-xs text-green-500 font-bold">+{selectedCoin.atl_change_percentage?.toFixed(2)}%</div>
-                    </div>
-                 </div>
-              </div>
-
-              <div className="border-t border-slate-100 my-2"></div>
-
-              {/* 4. Supply Info */}
-              <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><CircleDollarSign size={14}/> Circulating</div>
-                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className} text-right`}>
-                        {formatCompactNumber(selectedCoin.circulating_supply)} {selectedCoin.symbol}
-                    </div>
+            {/* STATS PRO UI */}
+            <div className="lg:col-span-1 space-y-4">
+               {/* Box 1: Market Data */}
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Globe size={16}/> Market Overview</h3>
+                  <div className="space-y-3">
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Market Cap</span>
+                        <span className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatCompactNumber(selectedCoin.market_cap)}</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Volume (24h)</span>
+                        <span className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatCompactNumber(selectedCoin.total_volume)}</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">FDV</span>
+                        <span className={`font-bold text-slate-900 ${jetbrainsMono.className}`}>${formatCompactNumber(selectedCoin.fully_diluted_valuation)}</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500 flex items-center gap-1">TVL <Layers size={12}/></span>
+                        <span className={`font-bold text-blue-600 ${jetbrainsMono.className}`}>
+                           {selectedCoin.tvl ? `$${formatCompactNumber(selectedCoin.tvl)}` : 'N/A'}
+                        </span>
+                     </div>
                   </div>
-                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-600 rounded-full" style={{width: `${(selectedCoin.circulating_supply / (selectedCoin.max_supply || selectedCoin.total_supply)) * 100}%`}}></div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><Database size={14}/> Total Supply</div>
-                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>
-                      {formatCompactNumber(selectedCoin.total_supply)}
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium"><Lock size={14}/> Max Supply</div>
-                    <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>
-                      {selectedCoin.max_supply ? formatCompactNumber(selectedCoin.max_supply) : '∞'}
-                    </div>
-                  </div>
-              </div>
+               </div>
 
+               {/* Box 2: Price Performance */}
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><TrendingUp size={16}/> Performance</h3>
+                  
+                  {/* Range Bar */}
+                  <div className="mb-4">
+                     <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1.5">
+                        <span>Low: ${formatPrice(selectedCoin.low_24h)}</span>
+                        <span>High: ${formatPrice(selectedCoin.high_24h)}</span>
+                     </div>
+                     <div className="w-full h-1.5 bg-slate-100 rounded-full relative overflow-hidden">
+                        <div className="absolute top-0 bottom-0 bg-slate-800 rounded-full w-2"
+                             style={{left: `${((selectedCoin.current_price - selectedCoin.low_24h) / (selectedCoin.high_24h - selectedCoin.low_24h)) * 100}%`}}>
+                        </div>
+                        <div className="w-full h-full bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 opacity-50"></div>
+                     </div>
+                     <div className="text-right text-[10px] text-slate-400 mt-1">24h Range</div>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-slate-50">
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">ATH (All Time High)</span>
+                        <div className="text-right">
+                           <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.ath)}</div>
+                           <div className="text-[10px] text-red-500 font-bold">{selectedCoin.ath_change_percentage?.toFixed(2)}%</div>
+                        </div>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">ATL (All Time Low)</span>
+                        <div className="text-right">
+                           <div className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>${formatPrice(selectedCoin.atl)}</div>
+                           <div className="text-[10px] text-green-500 font-bold">+{selectedCoin.atl_change_percentage?.toFixed(2)}%</div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+
+               {/* Box 3: Supply */}
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Database size={16}/> Supply Info</h3>
+                  <div className="space-y-3">
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Circulating</span>
+                        <span className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>{formatCompactNumber(selectedCoin.circulating_supply)}</span>
+                     </div>
+                     {/* Progress Bar Supply */}
+                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                         <div className="h-full bg-blue-600" style={{width: `${(selectedCoin.circulating_supply / (selectedCoin.max_supply || selectedCoin.total_supply)) * 100}%`}}></div>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Total Supply</span>
+                        <span className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>{formatCompactNumber(selectedCoin.total_supply)}</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                        <span className="text-sm text-slate-500">Max Supply</span>
+                        <span className={`font-bold text-slate-900 text-xs ${jetbrainsMono.className}`}>{selectedCoin.max_supply ? formatCompactNumber(selectedCoin.max_supply) : '∞'}</span>
+                     </div>
+                  </div>
+               </div>
             </div>
+
           </div>
         </div>
       )}
@@ -578,7 +560,7 @@ export default function Home() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center">
             <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết (Top 8)
+              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết
             </h3>
             <button className="text-xs font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1"><Settings size={14} /> Tùy chỉnh</button>
           </div>
@@ -620,7 +602,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
             <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
           </h2>
-          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP và Luật Công nghiệp Công nghệ số</p>
+          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP</p>
         </div>
         <div className="space-y-3">
           {faqs.map((faq, idx) => (
