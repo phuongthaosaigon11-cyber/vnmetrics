@@ -47,7 +47,6 @@ const CustomTooltip = ({ active, payload, label }) => {
                ${formatPrice(data.price)}
              </span>
           </div>
-          {/* Note: Volume là 0 vì DefiLlama chart không trả volume */}
         </div>
       </div>
     );
@@ -55,25 +54,25 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-// --- 4. FETCH CHART TỪ DEFILLAMA (LOGIC FIX) ---
+// --- 4. FETCH CHART TỪ DEFILLAMA (FIXED) ---
 const fetchDefiLlamaChart = async (coinDefiId, range) => {
   try {
-    // Cấu hình tham số chuẩn để API luôn trả về dữ liệu dày đặc
-    let span = 48; // Số lượng điểm
-    let period = '30m'; // Độ phân giải
+    let span = 48; 
+    let period = '30m'; 
     let startTimestamp = Math.floor(Date.now() / 1000);
 
+    // Cấu hình tham số chuẩn DefiLlama
     switch(range) {
       case '1D': 
         span = 48; period = '30m'; 
-        startTimestamp -= 24 * 60 * 60; // 24h trước
+        startTimestamp -= 24 * 60 * 60; 
         break;
       case '1W': 
         span = 42; period = '4h'; 
         startTimestamp -= 7 * 24 * 60 * 60; 
         break;
       case '1M': 
-        span = 30; period = '1d'; 
+        span = 60; period = '12h'; // 12h * 60 = 30 days
         startTimestamp -= 30 * 24 * 60 * 60; 
         break;
       case '1Y': 
@@ -81,7 +80,7 @@ const fetchDefiLlamaChart = async (coinDefiId, range) => {
         startTimestamp -= 365 * 24 * 60 * 60; 
         break;
       case 'ALL':
-         span = 60; period = '1w'; // Lấy tượng trưng
+         span = 60; period = '1w'; 
          startTimestamp -= 3 * 365 * 24 * 60 * 60;
          break;
       default: 
@@ -91,12 +90,19 @@ const fetchDefiLlamaChart = async (coinDefiId, range) => {
     const url = `https://coins.llama.fi/chart/${coinDefiId}?start=${startTimestamp}&span=${span}&period=${period}`;
     const res = await fetch(url);
     
-    if (!res.ok) return [];
+    if (!res.ok) {
+        console.error(`DefiLlama API Error: ${res.status}`);
+        return [];
+    }
 
     const json = await res.json();
 
-    if (json && json.coins && json.coins[coinDefiId] && json.coins[coinDefiId].length > 0) {
-      const rawPoints = json.coins[coinDefiId];
+    // --- FIX QUAN TRỌNG: Truy cập vào .prices ---
+    if (json && json.coins && json.coins[coinDefiId] && json.coins[coinDefiId].prices) {
+      const rawPoints = json.coins[coinDefiId].prices;
+      
+      if (rawPoints.length === 0) return [];
+
       const baseline = rawPoints[0].price;
 
       return rawPoints.map(p => {
@@ -104,7 +110,8 @@ const fetchDefiLlamaChart = async (coinDefiId, range) => {
          // Format nhãn trục X
          let timeLabel = range === '1D' ? `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}` : `${t.getDate()}/${t.getMonth()+1}`;
          if (range === '1Y' || range === 'ALL') timeLabel = `${t.getMonth()+1}/${t.getFullYear()}`;
-         // Format Tooltip
+         
+         // Format Tooltip đầy đủ
          const fullTime = `${t.getDate().toString().padStart(2,'0')}/${(t.getMonth()+1).toString().padStart(2,'0')}/${t.getFullYear()} ${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}`;
          
          return {
@@ -112,13 +119,13 @@ const fetchDefiLlamaChart = async (coinDefiId, range) => {
            fullTime: fullTime,
            price: p.price,
            baseline: baseline,
-           volume: 0 // API này không có volume, để 0
+           volume: 0 
          };
       });
     }
     return []; 
   } catch (e) {
-    console.error("Chart Fetch Error:", e);
+    console.error("Chart Fetch Exception:", e);
     return []; 
   }
 };
@@ -156,7 +163,6 @@ export default function Home() {
         const cgData = await cgRes.json();
 
         // C. Map & Load Initial Chart
-        // Mapping chính xác ID
         const defiLlamaIds = {
           'bitcoin': 'coingecko:bitcoin',
           'ethereum': 'coingecko:ethereum',
@@ -184,7 +190,7 @@ export default function Home() {
            const tvl = chainInfo ? chainInfo.tvl : null;
 
            return {
-             ...coin, // Giữ lại toàn bộ field gốc của CG
+             ...coin, 
              defiId: defiId,
              symbol: coin.symbol.toUpperCase(),
              tvl: tvl,
@@ -333,7 +339,7 @@ export default function Home() {
           
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {loading ? (
-               Array(5).fill(0).map((_, i) => <div key={i} className="h-28 bg-slate-50 rounded-xl animate-pulse"></div>)
+               Array(5).fill(0).map((_, i) => <div key={i} className="h-28 bg-slate-100 rounded-xl animate-pulse"></div>)
             ) : (
               cryptos.slice(0, 5).map((coin) => {
                 const isUp = coin.price_change_percentage_24h >= 0;
@@ -423,7 +429,7 @@ export default function Home() {
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-300">
                       <Activity size={48} className="text-slate-300 mb-2"/>
                       <p className="text-slate-500 font-bold">No Chart Data Available</p>
-                      <p className="text-xs text-slate-400 mt-1">DefiLlama API might be unavailable for this pair/range.</p>
+                      <p className="text-xs text-slate-400 mt-1">Unable to fetch chart from DefiLlama.</p>
                     </div>
                  ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -560,7 +566,7 @@ export default function Home() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center">
             <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết
+              <BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết (Top 10)
             </h3>
             <button className="text-xs font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1"><Settings size={14} /> Tùy chỉnh</button>
           </div>
@@ -602,7 +608,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-slate-900 mb-2 flex items-center justify-center gap-2">
             <FileText size={28} className="text-blue-700"/> Pháp lý & Giải đáp
           </h2>
-          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP</p>
+          <p className="text-slate-500 text-sm">Thông tin căn cứ theo Nghị quyết 05/2025/NQ-CP và Luật Công nghiệp Công nghệ số</p>
         </div>
         <div className="space-y-3">
           {faqs.map((faq, idx) => (
