@@ -3,15 +3,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
-  Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
-  BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Database, Droplets, Info, ServerCrash,
-  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText,
-  Eye 
+  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
   BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Database, Droplets, Info, ServerCrash,
-  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText
+  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText, Eye
 } from 'lucide-react';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
