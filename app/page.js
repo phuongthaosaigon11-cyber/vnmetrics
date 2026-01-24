@@ -3,7 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
-  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
+  Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
+  BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Database, Droplets, Info, ServerCrash,
+  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText,
+  Eye 
 } from 'recharts';
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
