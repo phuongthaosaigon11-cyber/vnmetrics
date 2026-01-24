@@ -15,9 +15,6 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
-// --- CẤU HÌNH API KEY ---
-const FMP_KEY = 'HruFTFx8dc3pDyV24iHiPr9ZHgLmrq8N'; // <--- DÁN KEY CỦA BẠN VÀO ĐÂY (Vd: demo)
-
 // Danh sách ETF
 const ETF_LIST = [
   { symbol: 'IBIT', name: 'iShares Bitcoin Trust' },
@@ -43,27 +40,13 @@ export default function Home() {
   const [chartType, setChartType] = useState('baseline');
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
+  const [dataDate, setDataDate] = useState(''); // Ngày của dữ liệu ETF
 
   const [status, setStatus] = useState({
     market: 'loading',
     etf: 'loading',
     dex: 'loading'
   });
-
-  // --- HELPER: ROBUST FETCH ---
-  const fetchWithProxy = async (targetUrl) => {
-    const proxies = [
-      (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&t=${Date.now()}`,
-      (url) => `https://corsproxy.io/?${url}`,
-    ];
-    for (const p of proxies) {
-      try {
-        const res = await fetch(p(targetUrl));
-        if (res.ok) return res;
-      } catch (e) { console.warn("Proxy failed, trying next...", e); }
-    }
-    throw new Error("All proxies failed");
-  };
 
   // --- FORMATTERS ---
   const formatPrice = (price) => {
@@ -82,92 +65,63 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- 1. FETCH ETF (HYBRID: FMP API + FARSIDE SCRAPE) ---
+  // --- 1. FETCH ETF (TỪ FILE JSON NỘI BỘ - SIÊU NHANH) ---
   const fetchETF = async () => {
     setStatus(prev => ({...prev, etf: 'loading'}));
     
-    let marketData = {};
-    let flowData = {};
+    // 1. Lấy Flow từ file JSON do GitHub Action tạo ra
+    // Dùng timestamp để tránh cache trình duyệt
+    const jsonUrl = `/etf_data.json?t=${new Date().getTime()}`;
+    
+    // 2. Lấy Giá từ Yahoo Finance (Qua Proxy free - Client side)
+    // Nếu bạn có key FMP thì thay url này bằng FMP
+    const symbols = ETF_LIST.map(e => e.symbol).join(',');
+    const yahooUrl = `https://corsproxy.io/?https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
 
-    // A. Lấy giá & AUM từ FMP (Chính chủ, không cần Proxy, không sợ lỗi)
     try {
-      const symbols = ETF_LIST.map(e => e.symbol).join(',');
-      // FMP hỗ trợ gọi trực tiếp từ client (nhớ setup domain whitelist trong dashboard FMP nếu cần)
-      const fmpRes = await fetch(`https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`);
-      const fmpJson = await fmpRes.json();
+      const [jsonRes, marketRes] = await Promise.all([
+        fetch(jsonUrl).catch(() => null), // Nếu chưa có file json thì không crash
+        fetch(yahooUrl).catch(() => null)
+      ]);
+
+      const flowData = jsonRes && jsonRes.ok ? await jsonRes.json() : {};
+      const marketJson = marketRes && marketRes.ok ? await marketRes.json() : {};
       
-      if (Array.isArray(fmpJson)) {
-        fmpJson.forEach(q => {
-          marketData[q.symbol] = {
-            price: q.price,
-            change: q.changesPercentage,
-            vol: q.volume,
-            mcap: q.marketCap // FMP cung cấp Market Cap rất chuẩn
-          };
-        });
+      if (flowData._date) setDataDate(flowData._date); // Lưu ngày dữ liệu
+
+      const marketMap = {};
+      if (marketJson.quoteResponse?.result) {
+         marketJson.quoteResponse.result.forEach(q => {
+            marketMap[q.symbol] = {
+               price: q.regularMarketPrice,
+               change: q.regularMarketChangePercent,
+               mcap: q.marketCap
+            };
+         });
       }
+
+      // Merge Data
+      const finalData = ETF_LIST.map(etf => {
+        const m = marketMap[etf.symbol] || {};
+        const f = flowData[etf.symbol]; // Lấy từ JSON
+        
+        return {
+            ...etf,
+            price: m.price || 0,
+            change: m.change || 0,
+            aum: m.mcap || 0,
+            // Flow trong JSON đơn vị là Triệu USD -> Nhân 1 triệu
+            flow: (f !== undefined) ? f * 1000000 : 0 
+        };
+      });
+
+      setEtfs(finalData);
+      setStatus(prev => ({...prev, etf: 'success'}));
+
     } catch (e) {
-      console.error("FMP API Error:", e);
-      // Fallback: Nếu FMP lỗi hoặc hết quota, ta có thể fallback về Yahoo ở đây (tùy chọn)
+      console.error("ETF Error:", e);
+      setStatus(prev => ({...prev, etf: 'error'}));
     }
-
-    // B. Lấy Flow từ Farside (Vẫn cần Proxy vì FMP Free không có Flow history)
-    try {
-      const res = await fetchWithProxy("https://farside.co.uk/btc/");
-      const htmlText = await res.text();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlText, "text/html");
-      const table = doc.querySelector("table");
-
-      if (table) {
-        const rows = table.querySelectorAll("tr");
-        if (rows.length > 2) {
-            const headers = Array.from(rows[0].querySelectorAll("th, td")).map(c => c.textContent.trim());
-            let lastRow = rows[rows.length - 1].querySelectorAll("td");
-            if (lastRow.length < headers.length) {
-                 lastRow = rows[rows.length - 2].querySelectorAll("td");
-            }
-
-            headers.forEach((h, index) => {
-                let symbol = null;
-                if (h.includes('IBIT')) symbol = 'IBIT';
-                else if (h.includes('FBTC')) symbol = 'FBTC';
-                else if (h.includes('BITB')) symbol = 'BITB';
-                else if (h.includes('ARKB')) symbol = 'ARKB';
-                else if (h.includes('BTCO')) symbol = 'BTCO';
-                else if (h.includes('EZBC')) symbol = 'EZBC';
-                else if (h.includes('BRRR')) symbol = 'BRRR';
-                else if (h.includes('HODL')) symbol = 'HODL';
-                else if (h.includes('BTCW')) symbol = 'BTCW';
-                else if (h.includes('GBTC')) symbol = 'GBTC';
-
-                if (symbol && lastRow[index]) {
-                    const text = lastRow[index].textContent.trim().replace(/,/g, '');
-                    let val = parseFloat(text);
-                    if (text.includes('(') || text.includes(')')) val = -Math.abs(parseFloat(text.replace(/[()]/g, '')));
-                    if (!isNaN(val)) flowData[symbol] = val;
-                }
-            });
-        }
-      }
-    } catch (e) { console.error("Farside Fetch Error:", e); }
-
-    // C. Merge dữ liệu
-    const finalData = ETF_LIST.map(etf => {
-      const m = marketData[etf.symbol] || {};
-      const f = flowData[etf.symbol] !== undefined ? flowData[etf.symbol] : null;
-      return {
-          ...etf,
-          price: m.price || 0,
-          change: m.change || 0,
-          aum: m.mcap || 0,
-          volume: m.vol || 0,
-          flow: f !== null ? f * 1000000 : null
-      };
-    });
-
-    setEtfs(finalData);
-    setStatus(prev => ({...prev, etf: 'success'}));
   };
 
   // --- 2. FETCH MARKET (CoinGecko) ---
@@ -263,8 +217,8 @@ export default function Home() {
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume || 0)) : 0;
   
   const faqs = [
-    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama, Financial Modeling Prep và Farside Investors." },
-    { question: "Dòng tiền ETF lấy từ đâu?", answer: "Dữ liệu ETF Flow được lấy trực tiếp từ báo cáo của Farside UK. Giá và AUM được lấy từ Financial Modeling Prep (FMP) API." },
+    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và Farside Investors. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo." },
+    { question: "Dòng tiền ETF lấy từ đâu?", answer: "Dữ liệu ETF Flow được lấy trực tiếp từ báo cáo của Farside UK và giá thị trường từ Yahoo Finance Real-time." },
     { question: "Pháp lý về tài sản số tại Việt Nam thế nào?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành." }
   ];
 
@@ -446,25 +400,25 @@ export default function Home() {
         </>
       )}
 
+      {/* ETF TAB - SIÊU NHANH (KHÔNG CẦN FARSIDE) */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold text-xl text-slate-900 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> Bitcoin ETF Flows</h3>
-                <button onClick={fetchETF} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded font-bold flex items-center gap-1"><RefreshCw size={12}/> Cập nhật</button>
-              </div>
-              <div className="text-xs text-slate-500 mb-4 flex gap-4">
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Giá/AUM: Financial Modeling Prep (Chính xác)</span>
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-purple-500 rounded-full"></div> Flows: Farside UK</span>
+                <div className="flex items-center gap-4">
+                    {dataDate && <span className="text-xs font-bold bg-green-100 text-green-700 px-3 py-1 rounded-full">Dữ liệu ngày: {dataDate}</span>}
+                    <button onClick={fetchETF} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded font-bold flex items-center gap-1"><RefreshCw size={12}/> Cập nhật</button>
+                </div>
               </div>
               
-              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tổng hợp dữ liệu...</div>}
-              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Không thể kết nối cả 2 nguồn. Vui lòng thử lại.</p></div>}
+              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tải dữ liệu...</div>}
+              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Lỗi kết nối. Vui lòng thử lại sau.</p></div>}
               {(status.etf === 'success' || (etfs.length > 0 && status.etf !== 'loading')) && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Quỹ (Fund)</th><th className="px-6 py-4 text-right">Giá (FMP)</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">AUM (FMP)</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
+                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Quỹ (Fund)</th><th className="px-6 py-4 text-right">Giá (Yahoo)</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">AUM (Tỷ $)</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {etfs.map((etf, i) => (
