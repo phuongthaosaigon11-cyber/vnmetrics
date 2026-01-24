@@ -110,18 +110,73 @@ export default function Home() {
     } catch (e) { setStatus(prev => ({...prev, market: 'error'})); }
   }, [selectedCoin]);
 
+// --- 3. FETCH ETF (PHIÊN BẢN MỚI: SCRAPE FARSIDE.CO.UK) ---
   const fetchETF = async () => {
     setStatus(prev => ({...prev, etf: 'loading'}));
     try {
-      // Dùng corsproxy để lấy dữ liệu ETF thật mà không cần Server Proxy
-      const res = await fetch("https://corsproxy.io/?https://capi.coinglass.com/api/etf/flow");
-      const json = await res.json();
-      if (json && json.data) {
-        const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'HODL', 'BRRR', 'EZBC'];
-        setEtfs(json.data.filter(i => target.includes(i.ticker)));
-        setStatus(prev => ({...prev, etf: 'success'}));
+      // 1. Gọi qua Proxy để lấy HTML trang Farside
+      const res = await fetch("https://corsproxy.io/?https://farside.co.uk/btc/");
+      if (!res.ok) throw new Error("Proxy Error");
+      const htmlText = await res.text();
+
+      // 2. Parse HTML (Thay cho BeautifulSoup)
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, "text/html");
+      const table = doc.querySelector("table");
+
+      if (!table) throw new Error("No Table Found");
+
+      // 3. Xử lý dữ liệu (Mô phỏng logic Python của bạn)
+      const rows = table.querySelectorAll("tr");
+      if (rows.length < 2) throw new Error("Empty Data");
+
+      // Dòng đầu là Header (Tên các quỹ)
+      const headerCells = rows[0].querySelectorAll("th, td"); // Farside có thể dùng th hoặc td
+      // Dòng cuối cùng là dữ liệu mới nhất (theo logic Python rows[-1])
+      const lastRowCells = rows[rows.length - 1].querySelectorAll("td");
+
+      // Danh sách ticker mapping (Vì Farside dùng tên viết tắt khác CoinGecko/CoinGlass)
+      // Ta map thủ công vị trí cột cho chính xác hoặc lấy theo text
+      // Ở đây tôi làm cách an toàn: Tạo mảng object từ 2 dòng header và lastRow
+      
+      const etfData = [];
+      // Bỏ cột đầu tiên (Date) nên bắt đầu từ i = 1
+      for (let i = 1; i < headerCells.length; i++) {
+        const ticker = headerCells[i]?.textContent?.trim() || `ETF-${i}`;
+        const flowText = lastRowCells[i]?.textContent?.trim() || "0";
+        
+        // Convert text "(12.5)" thành số -12.5 hoặc "45.2" thành 45.2
+        let flowVal = parseFloat(flowText.replace(/,/g, '')); 
+        if (flowText.includes('(') || flowText.includes(')')) {
+            flowVal = -Math.abs(parseFloat(flowText.replace(/[(),]/g, '')));
+        }
+        if (isNaN(flowVal)) flowVal = 0;
+
+        // Chỉ lấy những mã quen thuộc để hiển thị đẹp
+        const knownTickers = ['IBIT', 'FBTC', 'BITB', 'ARKB', 'BTCO', 'EZBC', 'BRRR', 'HODL', 'BTCW', 'GBTC'];
+        // Farside có thể dùng tên khác, ta check tương đối hoặc hiển thị hết
+        // Để demo chạy được ngay, tôi sẽ push tất cả vào
+        
+        etfData.push({
+            ticker: ticker,
+            issuer: 'Farside Data',
+            price: 0, // HTML này không có giá, chỉ có Flow
+            aum: 0,   // HTML này không có AUM
+            flow: flowVal * 1000000 // Farside đơn vị là triệu USD, nhân lên cho khớp formatCompact
+        });
       }
-    } catch (e) { setStatus(prev => ({...prev, etf: 'error'})); }
+
+      // Lọc lại những thằng có dữ liệu hoặc nằm trong list quan tâm
+      const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'GBTC']; 
+      // Nếu Farside dùng tên khác (vd: "BlackRock"), bạn cần sửa lại target match
+      
+      setEtfs(etfData);
+      setStatus(prev => ({...prev, etf: 'success'}));
+
+    } catch (e) {
+      console.error("ETF Farside Error:", e);
+      setStatus(prev => ({...prev, etf: 'error'}));
+    }
   };
 
   const fetchDEX = async () => {
