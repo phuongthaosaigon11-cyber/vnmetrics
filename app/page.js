@@ -8,14 +8,14 @@ import {
 import { 
   Zap, ArrowUpRight, ArrowDownRight, ShieldAlert, 
   BarChart2, Lock, Globe, TrendingUp, Clock, Repeat, Landmark, Wallet, Activity, Database, Droplets, Info, ServerCrash,
-  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText, Eye
+  HelpCircle, ChevronDown, ChevronUp, AlertTriangle, FileText, Eye, RefreshCw
 } from 'lucide-react';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
-// Danh sách ETF cần theo dõi
+// Danh sách ETF
 const ETF_LIST = [
   { symbol: 'IBIT', name: 'iShares Bitcoin Trust' },
   { symbol: 'FBTC', name: 'Fidelity Wise Origin' },
@@ -47,6 +47,23 @@ export default function Home() {
     dex: 'loading'
   });
 
+  // --- HELPER: ROBUST FETCH (Thử nhiều Proxy) ---
+  const fetchWithProxy = async (targetUrl) => {
+    // Danh sách Proxy dự phòng
+    const proxies = [
+      (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&t=${Date.now()}`, // Ưu tiên cái này vì ít bị chặn
+      (url) => `https://corsproxy.io/?${url}`,
+    ];
+
+    for (const p of proxies) {
+      try {
+        const res = await fetch(p(targetUrl));
+        if (res.ok) return res;
+      } catch (e) { console.warn("Proxy failed, trying next...", e); }
+    }
+    throw new Error("All proxies failed");
+  };
+
   // --- FORMATTERS ---
   const formatPrice = (price) => {
     if (price === undefined || price === null || isNaN(price)) return '0.00';
@@ -64,24 +81,24 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- 1. FETCH ETF DUAL-SOURCE (Yahoo + Farside) ---
+  // --- 1. FETCH ETF (Robust Version) ---
   const fetchETF = async () => {
     setStatus(prev => ({...prev, etf: 'loading'}));
-    try {
-      // A. Lấy giá từ Yahoo Finance (Qua Proxy để tránh CORS)
-      const symbols = ETF_LIST.map(e => e.symbol).join(',');
-      const yahooUrl = `https://corsproxy.io/?https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-      
-      const [yahooRes, farsideRes] = await Promise.all([
-        fetch(yahooUrl),
-        fetch("https://corsproxy.io/?https://farside.co.uk/btc/")
-      ]);
+    
+    // Khởi tạo data mặc định để tránh lỗi undefined
+    let marketData = {};
+    let flowData = {};
+    let hasError = false;
 
-      // Xử lý Yahoo Data
-      const yahooJson = await yahooRes.json();
-      const marketData = {};
-      if (yahooJson.quoteResponse && yahooJson.quoteResponse.result) {
-        yahooJson.quoteResponse.result.forEach(q => {
+    // A. Lấy giá từ Yahoo Finance
+    try {
+      const symbols = ETF_LIST.map(e => e.symbol).join(',');
+      const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
+      const res = await fetchWithProxy(yahooUrl);
+      const json = await res.json();
+      
+      if (json.quoteResponse && json.quoteResponse.result) {
+        json.quoteResponse.result.forEach(q => {
           marketData[q.symbol] = {
             price: q.regularMarketPrice,
             change: q.regularMarketChangePercent,
@@ -90,25 +107,33 @@ export default function Home() {
           };
         });
       }
+    } catch (e) {
+      console.error("Yahoo Fetch Error:", e);
+      hasError = true;
+    }
 
-      // Xử lý Farside Data (Scraping bằng DOMParser thay vì Cheerio)
-      const htmlText = await farsideRes.text();
+    // B. Lấy Flow từ Farside
+    try {
+      const res = await fetchWithProxy("https://farside.co.uk/btc/");
+      const htmlText = await res.text();
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlText, "text/html");
       const table = doc.querySelector("table");
-      const flowData = {};
 
       if (table) {
         const rows = table.querySelectorAll("tr");
         if (rows.length > 2) {
-            // Lấy header để map vị trí cột (Vì Farside có thể đổi thứ tự)
             const headers = Array.from(rows[0].querySelectorAll("th, td")).map(c => c.textContent.trim());
-            // Lấy dòng dữ liệu cuối cùng (Latest data)
-            const lastRow = rows[rows.length - 1].querySelectorAll("td");
-            
+            // Lấy dòng cuối cùng có dữ liệu (đôi khi dòng cuối là total, nên check kỹ)
+            let lastRow = rows[rows.length - 1].querySelectorAll("td");
+            // Check sơ bộ nếu dòng cuối toàn text lạ thì lùi lại 1 dòng
+            if (lastRow.length < headers.length) {
+                 lastRow = rows[rows.length - 2].querySelectorAll("td");
+            }
+
             headers.forEach((h, index) => {
-                // Map tên cột Farside sang Symbol chuẩn
                 let symbol = null;
+                // Mapping tên cột của Farside sang Symbol
                 if (h.includes('IBIT')) symbol = 'IBIT';
                 else if (h.includes('FBTC')) symbol = 'FBTC';
                 else if (h.includes('BITB')) symbol = 'BITB';
@@ -122,37 +147,38 @@ export default function Home() {
 
                 if (symbol && lastRow[index]) {
                     const text = lastRow[index].textContent.trim().replace(/,/g, '');
-                    // Xử lý số âm trong ngoặc đơn (12.5) -> -12.5
                     let val = parseFloat(text);
-                    if (text.includes('(') || text.includes(')')) {
-                        val = -Math.abs(parseFloat(text.replace(/[()]/g, '')));
-                    }
+                    if (text.includes('(') || text.includes(')')) val = -Math.abs(parseFloat(text.replace(/[()]/g, '')));
                     if (!isNaN(val)) flowData[symbol] = val;
                 }
             });
         }
       }
-
-      // Merge dữ liệu
-      const finalData = ETF_LIST.map(etf => {
-        const m = marketData[etf.symbol] || {};
-        const f = flowData[etf.symbol] || 0;
-        return {
-            ...etf,
-            price: m.price || 0,
-            change: m.change || 0,
-            aum: m.mcap || 0,
-            volume: m.vol || 0,
-            flow: f * 1000000 // Farside đơn vị Triệu USD
-        };
-      });
-
-      setEtfs(finalData);
-      setStatus(prev => ({...prev, etf: 'success'}));
-
     } catch (e) {
-      console.error("ETF Error:", e);
-      setStatus(prev => ({...prev, etf: 'error'}));
+      console.error("Farside Fetch Error:", e);
+      hasError = true;
+    }
+
+    // C. Merge dữ liệu (Dù lỗi 1 trong 2 vẫn hiển thị cái còn lại)
+    const finalData = ETF_LIST.map(etf => {
+      const m = marketData[etf.symbol] || {};
+      const f = flowData[etf.symbol] !== undefined ? flowData[etf.symbol] : null;
+      return {
+          ...etf,
+          price: m.price || 0,
+          change: m.change || 0,
+          aum: m.mcap || 0,
+          volume: m.vol || 0,
+          flow: f !== null ? f * 1000000 : null // null nghĩa là chưa có dữ liệu flow
+      };
+    });
+
+    setEtfs(finalData);
+    // Nếu cả 2 đều lỗi thì mới báo error, còn không thì success (partial)
+    if (Object.keys(marketData).length === 0 && Object.keys(flowData).length === 0) {
+        setStatus(prev => ({...prev, etf: 'error'}));
+    } else {
+        setStatus(prev => ({...prev, etf: 'success'}));
     }
   };
 
@@ -432,19 +458,22 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB - PHIÊN BẢN FARSIDE + YAHOO */}
+      {/* ETF TAB - ROBUST VERSION */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> Bitcoin ETF Flows (Real-time)</h3>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-xl text-slate-900 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> Bitcoin ETF Flows</h3>
+                <button onClick={fetchETF} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded font-bold flex items-center gap-1"><RefreshCw size={12}/> Cập nhật</button>
+              </div>
               <div className="text-xs text-slate-500 mb-4 flex gap-4">
                   <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Giá: Yahoo Finance</span>
                   <span className="flex items-center gap-1"><div className="w-2 h-2 bg-purple-500 rounded-full"></div> Flows: Farside UK</span>
               </div>
               
-              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tổng hợp dữ liệu 2 nguồn...</div>}
-              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Lỗi kết nối Proxy. Vui lòng thử lại sau.</p></div>}
-              {status.etf === 'success' && (
+              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tổng hợp dữ liệu...</div>}
+              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Không thể kết nối cả 2 nguồn. Vui lòng thử lại.</p></div>}
+              {(status.etf === 'success' || (etfs.length > 0 && status.etf !== 'loading')) && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
@@ -459,7 +488,11 @@ export default function Home() {
                           <td className={`px-6 py-4 text-right font-bold ${(etf.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(etf.change || 0).toFixed(2)}%</td>
                           <td className="px-6 py-4 text-right font-bold">{formatCompact(etf.aum)}</td>
                           <td className={`px-6 py-4 text-right font-bold ${(etf.flow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {(etf.flow || 0) > 0 ? '+' : ''}{formatCompact(etf.flow)}
+                            {etf.flow === null ? <span className="text-slate-400 font-normal">Chưa có</span> : (
+                                <>
+                                  {(etf.flow) > 0 ? '+' : ''}{formatCompact(etf.flow)}
+                                </>
+                            )}
                           </td>
                         </tr>
                       ))}
