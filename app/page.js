@@ -15,22 +15,32 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
+// Danh sách ETF cần theo dõi
+const ETF_LIST = [
+  { symbol: 'IBIT', name: 'iShares Bitcoin Trust' },
+  { symbol: 'FBTC', name: 'Fidelity Wise Origin' },
+  { symbol: 'GBTC', name: 'Grayscale Bitcoin Trust' },
+  { symbol: 'ARKB', name: 'ARK 21Shares Bitcoin' },
+  { symbol: 'BITB', name: 'Bitwise Bitcoin ETF' },
+  { symbol: 'EZBC', name: 'Franklin Bitcoin ETF' },
+  { symbol: 'BRRR', name: 'Valkyrie Bitcoin Fund' },
+  { symbol: 'HODL', name: 'VanEck Bitcoin Trust' },
+];
+
 export default function Home() {
   const [cryptos, setCryptos] = useState([]);
   const [etfs, setEtfs] = useState([]);
   const [dexs, setDexs] = useState([]);
-  
   const [selectedCoin, setSelectedCoin] = useState(null);
   const [timeRange, setTimeRange] = useState('1D');
   const [activeTab, setActiveTab] = useState('market'); 
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
   const [showConsent, setShowConsent] = useState(false);
-  const [chartType, setChartType] = useState('baseline'); // Mặc định là Baseline
+  const [chartType, setChartType] = useState('baseline');
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
   const [imgError, setImgError] = useState({});
 
-  // Trạng thái loading
   const [status, setStatus] = useState({
     market: 'loading',
     etf: 'loading',
@@ -54,20 +64,107 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- DATA FETCHING (Giữ logic ổn định của V36 để không bị lỗi) ---
-  
+  // --- 1. FETCH ETF DUAL-SOURCE (Yahoo + Farside) ---
+  const fetchETF = async () => {
+    setStatus(prev => ({...prev, etf: 'loading'}));
+    try {
+      // A. Lấy giá từ Yahoo Finance (Qua Proxy để tránh CORS)
+      const symbols = ETF_LIST.map(e => e.symbol).join(',');
+      const yahooUrl = `https://corsproxy.io/?https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
+      
+      const [yahooRes, farsideRes] = await Promise.all([
+        fetch(yahooUrl),
+        fetch("https://corsproxy.io/?https://farside.co.uk/btc/")
+      ]);
+
+      // Xử lý Yahoo Data
+      const yahooJson = await yahooRes.json();
+      const marketData = {};
+      if (yahooJson.quoteResponse && yahooJson.quoteResponse.result) {
+        yahooJson.quoteResponse.result.forEach(q => {
+          marketData[q.symbol] = {
+            price: q.regularMarketPrice,
+            change: q.regularMarketChangePercent,
+            vol: q.regularMarketVolume,
+            mcap: q.marketCap
+          };
+        });
+      }
+
+      // Xử lý Farside Data (Scraping bằng DOMParser thay vì Cheerio)
+      const htmlText = await farsideRes.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, "text/html");
+      const table = doc.querySelector("table");
+      const flowData = {};
+
+      if (table) {
+        const rows = table.querySelectorAll("tr");
+        if (rows.length > 2) {
+            // Lấy header để map vị trí cột (Vì Farside có thể đổi thứ tự)
+            const headers = Array.from(rows[0].querySelectorAll("th, td")).map(c => c.textContent.trim());
+            // Lấy dòng dữ liệu cuối cùng (Latest data)
+            const lastRow = rows[rows.length - 1].querySelectorAll("td");
+            
+            headers.forEach((h, index) => {
+                // Map tên cột Farside sang Symbol chuẩn
+                let symbol = null;
+                if (h.includes('IBIT')) symbol = 'IBIT';
+                else if (h.includes('FBTC')) symbol = 'FBTC';
+                else if (h.includes('BITB')) symbol = 'BITB';
+                else if (h.includes('ARKB')) symbol = 'ARKB';
+                else if (h.includes('BTCO')) symbol = 'BTCO';
+                else if (h.includes('EZBC')) symbol = 'EZBC';
+                else if (h.includes('BRRR')) symbol = 'BRRR';
+                else if (h.includes('HODL')) symbol = 'HODL';
+                else if (h.includes('BTCW')) symbol = 'BTCW';
+                else if (h.includes('GBTC')) symbol = 'GBTC';
+
+                if (symbol && lastRow[index]) {
+                    const text = lastRow[index].textContent.trim().replace(/,/g, '');
+                    // Xử lý số âm trong ngoặc đơn (12.5) -> -12.5
+                    let val = parseFloat(text);
+                    if (text.includes('(') || text.includes(')')) {
+                        val = -Math.abs(parseFloat(text.replace(/[()]/g, '')));
+                    }
+                    if (!isNaN(val)) flowData[symbol] = val;
+                }
+            });
+        }
+      }
+
+      // Merge dữ liệu
+      const finalData = ETF_LIST.map(etf => {
+        const m = marketData[etf.symbol] || {};
+        const f = flowData[etf.symbol] || 0;
+        return {
+            ...etf,
+            price: m.price || 0,
+            change: m.change || 0,
+            aum: m.mcap || 0,
+            volume: m.vol || 0,
+            flow: f * 1000000 // Farside đơn vị Triệu USD
+        };
+      });
+
+      setEtfs(finalData);
+      setStatus(prev => ({...prev, etf: 'success'}));
+
+    } catch (e) {
+      console.error("ETF Error:", e);
+      setStatus(prev => ({...prev, etf: 'error'}));
+    }
+  };
+
+  // --- 2. FETCH MARKET & CHART (CoinGecko) ---
   const fetchChart = async (coinId, range) => {
     try {
       let days = '1';
-      if (range === '1W') days = '7';
-      if (range === '1M') days = '30';
-      if (range === '1Y') days = '365';
-      if (range === 'ALL') days = 'max';
-
+      if (range === '1W') days = '7'; if (range === '1M') days = '30';
+      if (range === '1Y') days = '365'; if (range === 'ALL') days = 'max';
       const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
       if (!res.ok) return [];
       const data = await res.json();
-      
       if (data && data.prices) {
         const baseline = data.prices.length > 0 ? data.prices[0][1] : 0;
         return data.prices.map((p, i) => ({
@@ -75,7 +172,7 @@ export default function Home() {
           fullTime: new Date(p[0]).toLocaleString(),
           price: p[1] || 0,
           volume: (data.total_volumes && data.total_volumes[i]) ? data.total_volumes[i][1] : 0,
-          baseline: baseline
+          baseline
         }));
       }
       return [];
@@ -86,99 +183,18 @@ export default function Home() {
     setStatus(prev => ({...prev, market: 'loading'}));
     try {
       const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,avalanche-2&order=market_cap_desc&per_page=10&page=1&sparkline=false');
-      
-      if (res.status === 429) {
-        setStatus(prev => ({...prev, market: 'error'}));
-        return;
-      }
-      
+      if (res.status === 429) { setStatus(prev => ({...prev, market: 'error'})); return; }
       const data = await res.json();
       if (!Array.isArray(data)) return;
-
       const chart = await fetchChart(data[0].id, '1D');
-      
-      const processed = data.map((c, i) => ({
-        ...c, 
-        symbol: c.symbol ? c.symbol.toUpperCase() : '???',
-        chartData: i === 0 ? chart : []
-      }));
-      
+      const processed = data.map((c, i) => ({ ...c, symbol: c.symbol.toUpperCase(), chartData: i === 0 ? chart : [] }));
       setCryptos(processed);
       if (!selectedCoin) setSelectedCoin(processed[0]);
       setStatus(prev => ({...prev, market: 'success'}));
-
     } catch (e) { setStatus(prev => ({...prev, market: 'error'})); }
   }, [selectedCoin]);
 
-// --- 3. FETCH ETF (PHIÊN BẢN MỚI: SCRAPE FARSIDE.CO.UK) ---
-  const fetchETF = async () => {
-    setStatus(prev => ({...prev, etf: 'loading'}));
-    try {
-      // 1. Gọi qua Proxy để lấy HTML trang Farside
-      const res = await fetch("https://corsproxy.io/?https://farside.co.uk/btc/");
-      if (!res.ok) throw new Error("Proxy Error");
-      const htmlText = await res.text();
-
-      // 2. Parse HTML (Thay cho BeautifulSoup)
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlText, "text/html");
-      const table = doc.querySelector("table");
-
-      if (!table) throw new Error("No Table Found");
-
-      // 3. Xử lý dữ liệu (Mô phỏng logic Python của bạn)
-      const rows = table.querySelectorAll("tr");
-      if (rows.length < 2) throw new Error("Empty Data");
-
-      // Dòng đầu là Header (Tên các quỹ)
-      const headerCells = rows[0].querySelectorAll("th, td"); // Farside có thể dùng th hoặc td
-      // Dòng cuối cùng là dữ liệu mới nhất (theo logic Python rows[-1])
-      const lastRowCells = rows[rows.length - 1].querySelectorAll("td");
-
-      // Danh sách ticker mapping (Vì Farside dùng tên viết tắt khác CoinGecko/CoinGlass)
-      // Ta map thủ công vị trí cột cho chính xác hoặc lấy theo text
-      // Ở đây tôi làm cách an toàn: Tạo mảng object từ 2 dòng header và lastRow
-      
-      const etfData = [];
-      // Bỏ cột đầu tiên (Date) nên bắt đầu từ i = 1
-      for (let i = 1; i < headerCells.length; i++) {
-        const ticker = headerCells[i]?.textContent?.trim() || `ETF-${i}`;
-        const flowText = lastRowCells[i]?.textContent?.trim() || "0";
-        
-        // Convert text "(12.5)" thành số -12.5 hoặc "45.2" thành 45.2
-        let flowVal = parseFloat(flowText.replace(/,/g, '')); 
-        if (flowText.includes('(') || flowText.includes(')')) {
-            flowVal = -Math.abs(parseFloat(flowText.replace(/[(),]/g, '')));
-        }
-        if (isNaN(flowVal)) flowVal = 0;
-
-        // Chỉ lấy những mã quen thuộc để hiển thị đẹp
-        const knownTickers = ['IBIT', 'FBTC', 'BITB', 'ARKB', 'BTCO', 'EZBC', 'BRRR', 'HODL', 'BTCW', 'GBTC'];
-        // Farside có thể dùng tên khác, ta check tương đối hoặc hiển thị hết
-        // Để demo chạy được ngay, tôi sẽ push tất cả vào
-        
-        etfData.push({
-            ticker: ticker,
-            issuer: 'Farside Data',
-            price: 0, // HTML này không có giá, chỉ có Flow
-            aum: 0,   // HTML này không có AUM
-            flow: flowVal * 1000000 // Farside đơn vị là triệu USD, nhân lên cho khớp formatCompact
-        });
-      }
-
-      // Lọc lại những thằng có dữ liệu hoặc nằm trong list quan tâm
-      const target = ['IBIT', 'FBTC', 'ARKB', 'BITB', 'GBTC']; 
-      // Nếu Farside dùng tên khác (vd: "BlackRock"), bạn cần sửa lại target match
-      
-      setEtfs(etfData);
-      setStatus(prev => ({...prev, etf: 'success'}));
-
-    } catch (e) {
-      console.error("ETF Farside Error:", e);
-      setStatus(prev => ({...prev, etf: 'error'}));
-    }
-  };
-
+  // --- 3. FETCH DEX (DefiLlama) ---
   const fetchDEX = async () => {
     setStatus(prev => ({...prev, dex: 'loading'}));
     try {
@@ -202,7 +218,6 @@ export default function Home() {
     fetch('https://api.llama.fi/v2/chains').then(r=>r.json()).then(d=>{ if(Array.isArray(d)) setGlobalStats({ tvl: d.reduce((a, b) => a + (b.tvl || 0), 0) }); }).catch(()=>{});
   }, []);
 
-  // --- HANDLERS ---
   const handleSelectCoin = async (coin) => {
     if (!coin.chartData || coin.chartData.length === 0) {
       const chart = await fetchChart(coin.id, timeRange);
@@ -211,7 +226,6 @@ export default function Home() {
       setCryptos(prev => prev.map(c => c.id === coin.id ? updatedCoin : c));
     } else { setSelectedCoin(coin); }
   };
-
   const handleTimeChange = async (range) => {
     setTimeRange(range);
     if (selectedCoin) {
@@ -221,8 +235,6 @@ export default function Home() {
       setCryptos(prev => prev.map(c => c.id === selectedCoin.id ? updatedCoin : c));
     }
   };
-
-  // --- CHART HELPERS ---
   const getGradientOffset = (data) => {
     if (!data || data.length === 0) return 0;
     const max = Math.max(...data.map(i => i.price));
@@ -233,28 +245,23 @@ export default function Home() {
     if (baseline <= min) return 1;
     return (max - baseline) / (max - min);
   };
-
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume || 0)) : 0;
-
-  // --- FAQ CONTENT ---
+  
   const faqs = [
-    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và CoinGlass. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo, độ trễ có thể xảy ra tùy thuộc vào API gốc." },
-    { question: "Tôi có thể giao dịch trực tiếp trên VNMetrics không?", answer: "Không. VNMetrics chỉ là nền tảng cung cấp thông tin và dữ liệu phân tích. Chúng tôi không cung cấp dịch vụ môi giới, khớp lệnh hay giữ tiền của người dùng." },
-    { question: "Pháp lý về tài sản số tại Việt Nam thế nào?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành và tự chịu trách nhiệm về quyết định đầu tư của mình." }
+    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và Farside Investors. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo." },
+    { question: "Dòng tiền ETF lấy từ đâu?", answer: "Dữ liệu ETF Flow được lấy trực tiếp từ báo cáo của Farside UK và giá thị trường từ Yahoo Finance Real-time." },
+    { question: "Pháp lý về tài sản số tại Việt Nam thế nào?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành." }
   ];
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] text-slate-900 ${inter.className} pb-10`}>
-      {/* DISCLAIMER POPUP */}
       {showConsent && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 shadow-xl z-[100] p-6 flex justify-between items-center animate-in slide-in-from-bottom">
           <div className="text-sm text-slate-600"><ShieldAlert size={18} className="inline mr-2 text-blue-600"/><strong>Cảnh báo:</strong> VNMetrics tuân thủ Nghị quyết 05/2025/NQ-CP. Dữ liệu chỉ mang tính tham khảo.</div>
           <button onClick={() => {localStorage.setItem('vnmetrics_consent', 'true'); setShowConsent(false)}} className="bg-slate-900 text-white font-bold py-2 px-6 rounded hover:bg-slate-800">Đồng ý</button>
         </div>
       )}
-
-      {/* TOP BAR */}
       <div className="bg-[#0B0E14] text-slate-400 text-[11px] py-2 border-b border-slate-800 px-4 flex justify-between items-center">
          <div className="flex gap-6">
             <span className="flex items-center gap-1.5"><Globe size={12} className="text-blue-500"/> Global TVL: <span className="text-white font-bold">${formatCompact(globalStats.tvl)}</span></span>
@@ -262,8 +269,6 @@ export default function Home() {
          </div>
          <div className="flex items-center gap-2"><span>VNMetrics System</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
-
-      {/* HEADER */}
       <nav className="bg-white border-b sticky top-0 z-50 shadow-sm px-4 h-16 flex justify-between items-center backdrop-blur-md bg-white/95">
          <div className="flex items-center gap-2 font-extrabold text-xl text-slate-900"><Zap size={24} className="text-blue-600"/> VNMetrics<span className="text-slate-300 font-normal">.io</span></div>
          <div className="hidden md:flex bg-slate-100 p-1 rounded-lg">
@@ -277,10 +282,8 @@ export default function Home() {
          </div>
       </nav>
 
-      {/* --- CONTENT --- */}
       {activeTab === 'market' && (
         <>
-          {/* TICKER */}
           <div className="bg-white border-b py-8 px-4 bg-gradient-to-b from-white to-slate-50">
              {status.market === 'error' ? 
                <div className="text-center text-red-500 text-sm py-4"><ServerCrash className="mx-auto mb-2"/>Lỗi kết nối CoinGecko (429). Vui lòng chờ 30s và tải lại.</div> 
@@ -306,8 +309,6 @@ export default function Home() {
                 })}
              </div>}
           </div>
-
-          {/* CHART SECTION - CÓ BASELINE */}
           {selectedCoin && (
              <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[550px]">
@@ -320,7 +321,6 @@ export default function Home() {
                        </div>
                     </div>
                     <div className="flex gap-2 items-end flex-col sm:flex-row">
-                        {/* CHART TYPE TOGGLE */}
                         <div className="flex bg-slate-100 rounded-lg p-1 border">
                           <button onClick={() => setChartType('baseline')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='baseline'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Baseline</button>
                           <button onClick={() => setChartType('mountain')} className={`px-3 py-1.5 text-xs font-bold rounded ${chartType==='mountain'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Mountain</button>
@@ -330,52 +330,48 @@ export default function Home() {
                         </div>
                     </div>
                   </div>
-
                   <div className="flex-grow w-full relative min-h-[400px]">
-                     {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-slate-400"><Activity className="mb-2 animate-bounce"/> Đang tải biểu đồ...</div>
-                     ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart data={selectedCoin.chartData}>
-                            <defs>
-                              <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /></linearGradient>
-                              <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} /></linearGradient>
-                              <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                            <XAxis dataKey="time" tick={{fontSize:10, fill:'#94A3B8'}} axisLine={false} tickLine={false} minTickGap={40}/>
-                            <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize:11, fontFamily:'monospace', fill:'#64748B'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} axisLine={false} tickLine={false}/>
-                            <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 5]} hide />
-                            <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
-                            
-                            <Tooltip content={({ active, payload }) => {
-                                if (active && payload && payload.length && payload[0].payload) {
-                                    const d = payload[0].payload;
-                                    return (
-                                        <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-xl text-xs min-w-[180px] z-50">
-                                            <div className="text-slate-400 mb-2 flex items-center gap-2"><Clock size={12}/>{d.fullTime}</div>
-                                            <div className="text-white font-bold mb-1">Price: {formatPrice(d.price)}</div>
-                                            <div className="text-slate-300">Vol: {formatCompact(d.volume)}</div>
-                                        </div>
-                                    );
-                                }
-                                return null;
-                            }} cursor={{ stroke: '#94A3B8', strokeDasharray: '4 4' }} />
-
-                            {chartType === 'baseline' ? (
-                               <>
-                                 <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
-                                 <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} dot={false} />
-                               </>
-                            ) : (
-                               <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} dot={false} />
-                            )}
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                     )}
+                      {(!selectedCoin.chartData || selectedCoin.chartData.length === 0) ? (
+                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed text-slate-400"><Activity className="mb-2 animate-bounce"/> Đang tải biểu đồ...</div>
+                      ) : (
+                         <ResponsiveContainer width="100%" height="100%">
+                           <ComposedChart data={selectedCoin.chartData}>
+                             <defs>
+                               <linearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={0.2} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={0.2} /></linearGradient>
+                               <linearGradient id="splitStroke" x1="0" y1="0" x2="0" y2="1"><stop offset={gradientOffset} stopColor="#10B981" stopOpacity={1} /><stop offset={gradientOffset} stopColor="#EF4444" stopOpacity={1} /></linearGradient>
+                               <linearGradient id="colorMountain" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient>
+                             </defs>
+                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                             <XAxis dataKey="time" tick={{fontSize:10, fill:'#94A3B8'}} axisLine={false} tickLine={false} minTickGap={40}/>
+                             <YAxis yAxisId="price" orientation="right" domain={['auto', 'auto']} tick={{fontSize:11, fontFamily:'monospace', fill:'#64748B'}} tickFormatter={(val) => currency === 'VND' ? '' : val.toLocaleString()} axisLine={false} tickLine={false}/>
+                             <YAxis yAxisId="volume" orientation="left" domain={[0, maxVolume * 5]} hide />
+                             <Bar yAxisId="volume" dataKey="volume" fill="#E2E8F0" barSize={4} radius={[2, 2, 0, 0]} />
+                             <Tooltip content={({ active, payload }) => {
+                                 if (active && payload && payload.length && payload[0].payload) {
+                                     const d = payload[0].payload;
+                                     return (
+                                         <div className="bg-[#0f111a] border border-[#2B313F] p-3 rounded-lg shadow-xl text-xs min-w-[180px] z-50">
+                                             <div className="text-slate-400 mb-2 flex items-center gap-2"><Clock size={12}/>{d.fullTime}</div>
+                                             <div className="text-white font-bold mb-1">Price: {formatPrice(d.price)}</div>
+                                             <div className="text-slate-300">Vol: {formatCompact(d.volume)}</div>
+                                         </div>
+                                     );
+                                 }
+                                 return null;
+                             }} cursor={{ stroke: '#94A3B8', strokeDasharray: '4 4' }} />
+                             {chartType === 'baseline' ? (
+                                <>
+                                  <ReferenceLine yAxisId="price" y={selectedCoin.chartData[0].baseline} stroke="#CBD5E1" strokeDasharray="3 3" />
+                                  <Area yAxisId="price" type="monotone" dataKey="price" baseValue={selectedCoin.chartData[0].baseline} stroke="url(#splitStroke)" fill="url(#splitFill)" strokeWidth={2} dot={false} />
+                                </>
+                             ) : (
+                                <Area yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" fill="url(#colorMountain)" strokeWidth={2} dot={false} />
+                             )}
+                           </ComposedChart>
+                         </ResponsiveContainer>
+                      )}
                   </div>
                 </div>
-
                 <div className="lg:col-span-1 space-y-4">
                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Globe size={16}/> Market Overview</h3>
@@ -394,7 +390,6 @@ export default function Home() {
                          </div>
                       </div>
                    </div>
-
                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                       <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Database size={16}/> Supply Stats</h3>
                       <div className="space-y-4">
@@ -411,7 +406,6 @@ export default function Home() {
                 </div>
              </div>
           )}
-
           <div className="max-w-7xl mx-auto px-4 mt-8 mb-8">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-lg flex items-center gap-2"><BarChart2 size={20} className="text-blue-600"/> Bảng giá chi tiết</h3></div>
@@ -438,27 +432,35 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB */}
+      {/* ETF TAB - PHIÊN BẢN FARSIDE + YAHOO */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> US Spot ETF Flows (Via Proxy)</h3>
-              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tải dữ liệu...</div>}
-              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Lỗi kết nối Server Proxy. Vui lòng kiểm tra lại CORS.</p></div>}
+              <h3 className="font-bold text-xl text-slate-900 mb-6 flex items-center gap-2"><Landmark size={24} className="text-blue-600"/> Bitcoin ETF Flows (Real-time)</h3>
+              <div className="text-xs text-slate-500 mb-4 flex gap-4">
+                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Giá: Yahoo Finance</span>
+                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-purple-500 rounded-full"></div> Flows: Farside UK</span>
+              </div>
+              
+              {status.etf === 'loading' && <div className="text-center py-10 text-slate-400">Đang tổng hợp dữ liệu 2 nguồn...</div>}
+              {status.etf === 'error' && <div className="text-center py-10 text-red-500 flex flex-col items-center gap-2"><ServerCrash/><p>Lỗi kết nối Proxy. Vui lòng thử lại sau.</p></div>}
               {status.etf === 'success' && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Issuer</th><th className="px-6 py-4 text-right">Price</th><th className="px-6 py-4 text-right">AUM</th><th className="px-6 py-4 text-right">Flow (Daily)</th></tr>
+                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Quỹ (Fund)</th><th className="px-6 py-4 text-right">Giá (Yahoo)</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">AUM (Tỷ $)</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {etfs.map((etf, i) => (
                         <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-6 py-4 font-bold">{etf.ticker}</td>
-                          <td className="px-6 py-4 text-slate-600">{etf.issuer || 'Unknown'}</td>
-                          <td className="px-6 py-4 text-right font-medium">{formatPrice(etf.price || etf.closePrice)}</td>
+                          <td className="px-6 py-4 font-bold text-blue-600">{etf.symbol}</td>
+                          <td className="px-6 py-4 text-slate-700 font-semibold">{etf.name}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${jetbrainsMono.className}`}>{formatPrice(etf.price)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${(etf.change || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{(etf.change || 0).toFixed(2)}%</td>
                           <td className="px-6 py-4 text-right font-bold">{formatCompact(etf.aum)}</td>
-                          <td className={`px-6 py-4 text-right font-bold ${(etf.flow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCompact(etf.flow)}</td>
+                          <td className={`px-6 py-4 text-right font-bold ${(etf.flow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {(etf.flow || 0) > 0 ? '+' : ''}{formatCompact(etf.flow)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -469,7 +471,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* DEX TAB */}
       {activeTab === 'dex' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -500,7 +501,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* FAQ SECTION (ĐÃ KHÔI PHỤC) */}
       <section className="max-w-4xl mx-auto px-4 mt-16">
         <h2 className="text-2xl font-bold text-slate-900 mb-6 text-center flex items-center justify-center gap-2"><HelpCircle className="text-blue-600"/> Câu hỏi thường gặp</h2>
         <div className="space-y-3">
@@ -516,7 +516,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* DISCLAIMER (ĐÃ KHÔI PHỤC) */}
       <section className="max-w-7xl mx-auto px-4 mt-12 mb-8">
          <div className="bg-slate-50 border border-slate-200 p-6 rounded-xl text-xs text-slate-500 text-justify leading-relaxed">
             <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><AlertTriangle size={14}/> MIỄN TRỪ TRÁCH NHIỆM</h4>
@@ -524,7 +523,6 @@ export default function Home() {
          </div>
       </section>
 
-      {/* FOOTER ĐẦY ĐỦ (Kiểu TCEX) */}
       <footer className="bg-white border-t border-slate-200 mt-16 pt-10 pb-6 text-slate-600">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
            <div className="col-span-1 md:col-span-2">
@@ -532,10 +530,9 @@ export default function Home() {
                  <Zap size={24} className="text-blue-600"/> VNMetrics
               </div>
               <p className="text-sm leading-relaxed text-slate-500 pr-4 text-justify">
-                 VNMetrics là nền tảng dữ liệu tài sản số chuyên sâu, cung cấp góc nhìn đa chiều từ thị trường Spot, Dòng tiền ETF đến Tài chính phi tập trung (DeFi). Chúng tôi cam kết minh bạch nguồn dữ liệu.
+                  VNMetrics là nền tảng dữ liệu tài sản số chuyên sâu, cung cấp góc nhìn đa chiều từ thị trường Spot, Dòng tiền ETF đến Tài chính phi tập trung (DeFi). Chúng tôi cam kết minh bạch nguồn dữ liệu.
               </p>
            </div>
-           
            <div>
               <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Dữ liệu & Đối tác</h4>
               <ul className="space-y-2 text-sm text-slate-500">
@@ -544,7 +541,6 @@ export default function Home() {
                  <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div> CoinGlass (ETF Flows)</li>
               </ul>
            </div>
-
            <div>
               <h4 className="font-bold text-slate-900 mb-4 uppercase text-xs tracking-wider">Pháp lý</h4>
               <ul className="space-y-2 text-sm text-slate-500">
@@ -554,7 +550,6 @@ export default function Home() {
               </ul>
            </div>
         </div>
-
         <div className="max-w-7xl mx-auto px-4 pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-400">
            <p>&copy; 2026 VNMetrics. All rights reserved.</p>
            <p className="flex items-center gap-1"><ShieldAlert size={12}/> Tuân thủ Nghị quyết 05/2025/NQ-CP về thí điểm quản lý tài sản số.</p>
