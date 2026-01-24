@@ -15,6 +15,9 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
+// --- CẤU HÌNH API KEY ---
+const FMP_KEY = 'HruFTFx8dc3pDyV24iHiPr9ZHgLmrq8N'; // <--- DÁN KEY CỦA BẠN VÀO ĐÂY (Vd: demo)
+
 // Danh sách ETF
 const ETF_LIST = [
   { symbol: 'IBIT', name: 'iShares Bitcoin Trust' },
@@ -47,14 +50,12 @@ export default function Home() {
     dex: 'loading'
   });
 
-  // --- HELPER: ROBUST FETCH (Thử nhiều Proxy) ---
+  // --- HELPER: ROBUST FETCH ---
   const fetchWithProxy = async (targetUrl) => {
-    // Danh sách Proxy dự phòng
     const proxies = [
-      (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&t=${Date.now()}`, // Ưu tiên cái này vì ít bị chặn
+      (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&t=${Date.now()}`,
       (url) => `https://corsproxy.io/?${url}`,
     ];
-
     for (const p of proxies) {
       try {
         const res = await fetch(p(targetUrl));
@@ -81,38 +82,36 @@ export default function Home() {
     return pre + val.toLocaleString();
   };
 
-  // --- 1. FETCH ETF (Robust Version) ---
+  // --- 1. FETCH ETF (HYBRID: FMP API + FARSIDE SCRAPE) ---
   const fetchETF = async () => {
     setStatus(prev => ({...prev, etf: 'loading'}));
     
-    // Khởi tạo data mặc định để tránh lỗi undefined
     let marketData = {};
     let flowData = {};
-    let hasError = false;
 
-    // A. Lấy giá từ Yahoo Finance
+    // A. Lấy giá & AUM từ FMP (Chính chủ, không cần Proxy, không sợ lỗi)
     try {
       const symbols = ETF_LIST.map(e => e.symbol).join(',');
-      const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-      const res = await fetchWithProxy(yahooUrl);
-      const json = await res.json();
+      // FMP hỗ trợ gọi trực tiếp từ client (nhớ setup domain whitelist trong dashboard FMP nếu cần)
+      const fmpRes = await fetch(`https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`);
+      const fmpJson = await fmpRes.json();
       
-      if (json.quoteResponse && json.quoteResponse.result) {
-        json.quoteResponse.result.forEach(q => {
+      if (Array.isArray(fmpJson)) {
+        fmpJson.forEach(q => {
           marketData[q.symbol] = {
-            price: q.regularMarketPrice,
-            change: q.regularMarketChangePercent,
-            vol: q.regularMarketVolume,
-            mcap: q.marketCap
+            price: q.price,
+            change: q.changesPercentage,
+            vol: q.volume,
+            mcap: q.marketCap // FMP cung cấp Market Cap rất chuẩn
           };
         });
       }
     } catch (e) {
-      console.error("Yahoo Fetch Error:", e);
-      hasError = true;
+      console.error("FMP API Error:", e);
+      // Fallback: Nếu FMP lỗi hoặc hết quota, ta có thể fallback về Yahoo ở đây (tùy chọn)
     }
 
-    // B. Lấy Flow từ Farside
+    // B. Lấy Flow từ Farside (Vẫn cần Proxy vì FMP Free không có Flow history)
     try {
       const res = await fetchWithProxy("https://farside.co.uk/btc/");
       const htmlText = await res.text();
@@ -124,16 +123,13 @@ export default function Home() {
         const rows = table.querySelectorAll("tr");
         if (rows.length > 2) {
             const headers = Array.from(rows[0].querySelectorAll("th, td")).map(c => c.textContent.trim());
-            // Lấy dòng cuối cùng có dữ liệu (đôi khi dòng cuối là total, nên check kỹ)
             let lastRow = rows[rows.length - 1].querySelectorAll("td");
-            // Check sơ bộ nếu dòng cuối toàn text lạ thì lùi lại 1 dòng
             if (lastRow.length < headers.length) {
                  lastRow = rows[rows.length - 2].querySelectorAll("td");
             }
 
             headers.forEach((h, index) => {
                 let symbol = null;
-                // Mapping tên cột của Farside sang Symbol
                 if (h.includes('IBIT')) symbol = 'IBIT';
                 else if (h.includes('FBTC')) symbol = 'FBTC';
                 else if (h.includes('BITB')) symbol = 'BITB';
@@ -154,12 +150,9 @@ export default function Home() {
             });
         }
       }
-    } catch (e) {
-      console.error("Farside Fetch Error:", e);
-      hasError = true;
-    }
+    } catch (e) { console.error("Farside Fetch Error:", e); }
 
-    // C. Merge dữ liệu (Dù lỗi 1 trong 2 vẫn hiển thị cái còn lại)
+    // C. Merge dữ liệu
     const finalData = ETF_LIST.map(etf => {
       const m = marketData[etf.symbol] || {};
       const f = flowData[etf.symbol] !== undefined ? flowData[etf.symbol] : null;
@@ -169,20 +162,15 @@ export default function Home() {
           change: m.change || 0,
           aum: m.mcap || 0,
           volume: m.vol || 0,
-          flow: f !== null ? f * 1000000 : null // null nghĩa là chưa có dữ liệu flow
+          flow: f !== null ? f * 1000000 : null
       };
     });
 
     setEtfs(finalData);
-    // Nếu cả 2 đều lỗi thì mới báo error, còn không thì success (partial)
-    if (Object.keys(marketData).length === 0 && Object.keys(flowData).length === 0) {
-        setStatus(prev => ({...prev, etf: 'error'}));
-    } else {
-        setStatus(prev => ({...prev, etf: 'success'}));
-    }
+    setStatus(prev => ({...prev, etf: 'success'}));
   };
 
-  // --- 2. FETCH MARKET & CHART (CoinGecko) ---
+  // --- 2. FETCH MARKET (CoinGecko) ---
   const fetchChart = async (coinId, range) => {
     try {
       let days = '1';
@@ -275,8 +263,8 @@ export default function Home() {
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map(d => d.volume || 0)) : 0;
   
   const faqs = [
-    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama và Farside Investors. Tuy nhiên, mọi thông tin chỉ mang tính tham khảo." },
-    { question: "Dòng tiền ETF lấy từ đâu?", answer: "Dữ liệu ETF Flow được lấy trực tiếp từ báo cáo của Farside UK và giá thị trường từ Yahoo Finance Real-time." },
+    { question: "Dữ liệu trên VNMetrics có chính xác không?", answer: "Dữ liệu được tổng hợp thời gian thực từ các nguồn uy tín như CoinGecko, Binance, DefiLlama, Financial Modeling Prep và Farside Investors." },
+    { question: "Dòng tiền ETF lấy từ đâu?", answer: "Dữ liệu ETF Flow được lấy trực tiếp từ báo cáo của Farside UK. Giá và AUM được lấy từ Financial Modeling Prep (FMP) API." },
     { question: "Pháp lý về tài sản số tại Việt Nam thế nào?", answer: "Theo Nghị quyết 05/2025/NQ-CP, tài sản số đang trong giai đoạn thí điểm quản lý. Nhà đầu tư cần tuân thủ các quy định hiện hành." }
   ];
 
@@ -458,7 +446,6 @@ export default function Home() {
         </>
       )}
 
-      {/* ETF TAB - ROBUST VERSION */}
       {activeTab === 'etf' && (
         <div className="max-w-7xl mx-auto px-4 mt-8">
            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
@@ -467,7 +454,7 @@ export default function Home() {
                 <button onClick={fetchETF} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded font-bold flex items-center gap-1"><RefreshCw size={12}/> Cập nhật</button>
               </div>
               <div className="text-xs text-slate-500 mb-4 flex gap-4">
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Giá: Yahoo Finance</span>
+                  <span className="flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Giá/AUM: Financial Modeling Prep (Chính xác)</span>
                   <span className="flex items-center gap-1"><div className="w-2 h-2 bg-purple-500 rounded-full"></div> Flows: Farside UK</span>
               </div>
               
@@ -477,7 +464,7 @@ export default function Home() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Quỹ (Fund)</th><th className="px-6 py-4 text-right">Giá (Yahoo)</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">AUM (Tỷ $)</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
+                      <tr><th className="px-6 py-4">Ticker</th><th className="px-6 py-4">Quỹ (Fund)</th><th className="px-6 py-4 text-right">Giá (FMP)</th><th className="px-6 py-4 text-right">Biến động</th><th className="px-6 py-4 text-right">AUM (FMP)</th><th className="px-6 py-4 text-right">Daily Flow</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {etfs.map((etf, i) => (
