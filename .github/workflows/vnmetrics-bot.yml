@@ -21,11 +21,10 @@ jobs:
         with:
           node-version: '20'
 
-      # Cài đặt thư viện Puppeteer (Trình duyệt ảo)
+      # Quay về thư viện nhẹ: Axios và Cheerio
       - name: Install Dependencies
-        run: npm install axios cheerio puppeteer --no-save
+        run: npm install axios cheerio --no-save
 
-      # Chạy script (Đuôi .cjs)
       - name: Run Scraper Script
         run: node scripts/scrape-etf.cjs
 
