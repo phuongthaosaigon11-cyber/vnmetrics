@@ -1,0 +1,35 @@
+name: VNMetrics Super Bot
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # 09:30 AM VN
+  workflow_dispatch: # Cho phép bấm chạy tay
+
+jobs:
+  auto-scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Cấp quyền ghi file
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Dependencies (Force)
+        run: npm install axios cheerio
+
+      - name: Run Scraper V4
+        run: node scripts/scrape-etf.js
+
+      - name: Commit and Push Data
+        run: |
+          git config --global user.name 'VNMetrics Bot'
+          git config --global user.email 'bot@vnmetrics.io'
+          git add public/etf_data.json
+          # Commit và Push nếu có dữ liệu mới
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🚀 Auto-update ETF Data" && git push)

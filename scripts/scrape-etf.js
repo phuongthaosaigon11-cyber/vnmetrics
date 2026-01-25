@@ -4,12 +4,12 @@ const fs = require('fs');
 const path = require('path');
 
 async function scrapeFarside() {
-  console.log('🚀 [START] Bắt đầu chiến dịch lấy dữ liệu ETF (V4 - Multi Proxy)...');
+  console.log('🚀 [VNMETRICS BOT] Bắt đầu lấy dữ liệu ETF...');
   
   let flowData = { _date: "Updating...", status: "init" };
   let html = '';
 
-  // DANH SÁCH CÁC CỔNG KẾT NỐI (Thử lần lượt từ trên xuống)
+  // DANH SÁCH NGUỒN KẾT NỐI
   const sources = [
     {
       name: "Direct (Fake Browser)",
@@ -28,42 +28,35 @@ async function scrapeFarside() {
       name: "Proxy 2 (AllOrigins)",
       url: "https://api.allorigins.win/get?url=" + encodeURIComponent("https://farside.co.uk/btc/"),
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      isJson: true // API này trả về JSON
-    },
-    {
-      name: "Proxy 3 (ThingProxy)",
-      url: "https://thingproxy.freeboard.io/fetch/https://farside.co.uk/btc/",
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+      isJson: true
     }
   ];
 
-  // 1. VÒNG LẶP THỬ KẾT NỐI
+  // 1. THỬ KẾT NỐI
   for (const source of sources) {
     try {
       console.log(`📡 Đang thử: ${source.name}...`);
       const res = await axios.get(source.url, { headers: source.headers, timeout: 20000 });
       
       if (res.status === 200) {
-        // Xử lý dữ liệu trả về (HTML hoặc JSON)
         let content = source.isJson ? res.data.contents : res.data;
-        
-        if (content && content.length > 2000) { // HTML phải đủ dài mới đúng
+        if (content && content.length > 2000) {
             html = content;
             console.log(`✅ KẾT NỐI THÀNH CÔNG qua ${source.name}!`);
-            break; // Thoát vòng lặp ngay lập tức
+            break;
         }
       }
     } catch (e) {
-      console.warn(`⚠️ Thất bại (${source.name}): ${e.message}`);
+      console.warn(`⚠️ Thất bại (${source.name})`);
     }
   }
 
   if (!html) {
-    console.error("❌ CHẾT RỒI: Đã thử tất cả Proxy nhưng đều thất bại.");
-    process.exit(0); // Vẫn exit 0 để giữ workflow xanh (dùng data cũ)
+    console.error("❌ Thất bại toàn tập. Không lấy được HTML.");
+    process.exit(0);
   }
 
-  // 2. PHÂN TÍCH DỮ LIỆU
+  // 2. PHÂN TÍCH HTML
   try {
     const $ = cheerio.load(html);
     const tables = $('table');
@@ -112,7 +105,7 @@ async function scrapeFarside() {
         if (dateRegex.test(firstColText)) {
             lastRowDetails = tds;
             dataDate = firstColText;
-            console.log(`📅 Chốt ngày: "${dataDate}" (Dòng ${i})`);
+            console.log(`📅 Chốt ngày: "${dataDate}"`);
             break; 
         }
     }
