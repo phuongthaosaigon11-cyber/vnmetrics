@@ -2,8 +2,8 @@ name: VNMetrics Super Bot
 
 on:
   schedule:
-    - cron: '30 2 * * *' # 09:30 AM VN
-  workflow_dispatch: # Cho phép chạy tay
+    - cron: '30 2 * * *' # 9:30 AM VN
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,19 +16,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # QUAN TRỌNG: Nâng lên Node 20 để hỗ trợ thư viện mới
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
+      # Cài đặt thư viện Puppeteer (Trình duyệt ảo)
       - name: Install Dependencies
-        run: npm install axios cheerio --no-save
+        run: npm install axios cheerio puppeteer --no-save
 
+      # Chạy script (Đuôi .cjs)
       - name: Run Scraper Script
         run: node scripts/scrape-etf.cjs
 
-      # Tự động commit file nếu có dữ liệu mới
       - name: Auto Commit Data
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
