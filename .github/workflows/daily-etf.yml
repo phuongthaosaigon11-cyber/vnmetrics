@@ -2,35 +2,37 @@ name: Daily ETF Update
 
 on:
   schedule:
-    # 02:30 UTC = 09:30 Vietnam (Giờ đẹp để có dữ liệu chốt phiên Mỹ)
-    - cron: '30 2 * * *'
-  workflow_dispatch: # Cho phép bấm nút chạy thủ công để test ngay
+    - cron: '30 2 * * *' # 09:30 AM Vietnam
+  workflow_dispatch: # Cho phép chạy thủ công
 
 jobs:
-  update-etf:
+  scrape-data:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Cấp quyền ghi file vào repo
+      contents: write # Cấp quyền ghi file
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install dependencies
-        run: npm install axios cheerio
+      # --- SỬA ĐOẠN NÀY: Cài trực tiếp thư viện cần thiết ---
+      - name: Install Dependencies Force
+        run: |
+          npm install axios cheerio
+          npm list axios cheerio # Kiểm tra xem đã cài được chưa
 
-      - name: Run Scraper Script
+      - name: Run Scraper
         run: node scripts/scrape-etf.js
 
-      - name: Commit and Push changes
+      - name: Commit and Push
         run: |
           git config --global user.name 'VNMetrics Bot'
           git config --global user.email 'bot@vnmetrics.io'
           git add public/etf_data.json
-          # Chỉ commit nếu có thay đổi dữ liệu mới
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Auto-update ETF Data" && git push)
+          # Chỉ commit nếu có thay đổi để tránh lỗi rác
+          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Daily ETF Data Update" && git push)
