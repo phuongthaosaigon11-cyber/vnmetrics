@@ -1,139 +1,75 @@
 export interface MarketPoint {
-  date: string;       // "26 Jan"
-  fullDate: string;   // "26/01/2026" (Dùng cho tooltip)
+  date: string;
+  fullDate: string;
   timestamp: number;
   price: number;
   etfFlow: number;
-  cumulativeFlow: number; // Dòng tiền tích lũy (Optional)
   oi: number;
   funding: number;
-  isMarketClosed: boolean; // Cờ đánh dấu ngày nghỉ/chưa có data
+  isMarketClosed: boolean;
 }
 
 export const alignMarketData = (priceData: any[], etfRows: any[]): MarketPoint[] => {
   if (!priceData || priceData.length === 0) return [];
 
-  // 1. Tạo Map ETF Data (Key chuẩn hóa: "DD/MM/YYYY")
-  const etfMap = new Map<string, number>();
-  
-  if (etfRows && etfRows.length > 0) {
-      etfRows.forEach((row: any) => {
-        if (row && row.Date) {
-           const dateObj = new Date(row.Date);
-           if (!isNaN(dateObj.getTime())) {
-              // Key: 26/1/2026
-              const key = `${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
-              const flow = parseFloat(String(row.Total).replace(/,/g, '')) || 0;
-              etfMap.set(key, flow);
-           }
-        }
-      });
+  // 1. Map ETF Data (Key chuẩn: "26 Jan")
+  const etfMap = new Map();
+  if (etfRows) {
+    etfRows.forEach((row: any) => {
+      if (row?.Date) {
+         const d = new Date(row.Date);
+         const key = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+         etfMap.set(key, parseFloat(String(row.Total).replace(/,/g, '')) || 0);
+      }
+    });
   }
 
-  // 2. Duyệt qua Price Data (Làm xương sống vì luôn có dữ liệu mới nhất)
-  let accFlow = 0;
-  
-  const merged = priceData.map((p, index) => {
-    let dateObj: Date;
-    if (typeof p.timestamp === 'number') {
-        dateObj = new Date(p.timestamp);
-    } else {
-        dateObj = new Date(p.fullTime || p.time);
-    }
-
+  // 2. Duyệt qua Price Data làm chuẩn (Luôn có dữ liệu mới nhất từ CoinGecko)
+  return priceData.map((p, index) => {
+    const dateObj = new Date(p.timestamp || p.time);
     if (isNaN(dateObj.getTime())) return null;
 
-    // Key đối chiếu: 26/1/2026
-    const key = `${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
-    
-    // Format hiển thị
-    const displayDate = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-    const fullDate = dateObj.toLocaleDateString('en-GB'); // 26/01/2026
+    const dayStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const fullDate = dateObj.toLocaleDateString('en-GB');
 
-    // Lấy Flow
-    let etfFlow = 0;
-    let isMarketClosed = true;
+    // Nếu không tìm thấy trong Map => Chưa có dữ liệu ETF (Hôm nay hoặc Cuối tuần)
+    const hasData = etfMap.has(dayStr);
+    const etfFlow = hasData ? etfMap.get(dayStr) : 0;
 
-    if (etfMap.has(key)) {
-        etfFlow = etfMap.get(key) || 0;
-        isMarketClosed = false; // Có dữ liệu trong file JSON => Market mở
-    } else {
-        // Không có trong JSON (Cuối tuần hoặc Hôm nay chưa update)
-        // Check thứ trong tuần (0 = CN, 6 = T7)
-        const dayOfWeek = dateObj.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-            isMarketClosed = true;
-        } else {
-            // Ngày thường mà không có data -> Coi như chưa update (Pending)
-            isMarketClosed = true; 
-        }
-    }
-    
-    accFlow += etfFlow;
-
-    // Logic giả lập chỉ số phái sinh
+    // Giả lập Derivatives dựa trên giá
     const volatility = Math.abs(p.price - (priceData[index-1]?.price || p.price));
-    const oi = (p.price * 200) + (volatility * 50000) + 10000000; 
-    
-    let funding = 0.01;
-    if (etfFlow > 0) funding += 0.005;
-    if (etfFlow < 0) funding -= 0.005;
-    funding += (Math.random() * 0.002);
+    const oi = (p.price * 500) + (volatility * 150000) + 50000000;
+    let funding = 0.01 + (etfFlow > 0 ? 0.005 : -0.003) + (Math.random() * 0.004);
 
     return {
-      date: displayDate,
-      fullDate: fullDate,
+      date: dayStr,
+      fullDate,
       timestamp: dateObj.getTime(),
       price: p.price,
       etfFlow,
-      cumulativeFlow: accFlow,
       oi,
       funding,
-      isMarketClosed
+      isMarketClosed: !hasData
     };
   })
   .filter((item): item is MarketPoint => item !== null)
-  .sort((a, b) => a.timestamp - b.timestamp); // Sắp xếp cũ -> mới để vẽ Chart
-
-  return merged;
+  .sort((a, b) => a.timestamp - b.timestamp); // Chart cần sort từ cũ đến mới
 };
 
-export const analyzeSmartMoney = (lastPoint: MarketPoint, prevPoint: MarketPoint) => {
-  if (!lastPoint || !prevPoint) return null;
-  
-  // Nếu market đóng cửa, phân tích dựa trên hành động giá và OI
-  if (lastPoint.isMarketClosed) {
-      return {
-        type: 'WAITING',
-        label: 'MARKET CLOSED / PENDING',
-        desc: `Dữ liệu ETF ngày ${lastPoint.date} chưa được cập nhật hoặc thị trường đóng cửa.`,
-        color: 'text-slate-400',
-        bg: 'bg-slate-800/50 border-slate-700',
-        iconColor: 'bg-slate-600'
-      };
-  }
-
-  const { etfFlow, price } = lastPoint;
-  const prevPrice = prevPoint.price;
-  const priceTrend = price > prevPrice ? 'UP' : 'DOWN';
-
-  if (etfFlow > 0 && priceTrend === 'UP') {
-    return {
-      type: 'HEALTHY',
-      label: 'SPOT-DRIVEN RALLY',
-      desc: 'Giá tăng kèm dòng tiền ETF dương. Xu hướng tích cực.',
-      color: 'text-emerald-400',
-      bg: 'bg-emerald-950/40 border-emerald-500/50',
-      iconColor: 'bg-emerald-500'
-    };
-  }
-  // ... (Giữ nguyên các logic khác)
-  return {
-    type: 'NEUTRAL',
-    label: 'NEUTRAL',
-    desc: 'Thị trường đi ngang.',
-    color: 'text-slate-300',
-    bg: 'bg-slate-800/50 border-slate-700',
-    iconColor: 'bg-slate-500'
+export const analyzeSmartMoney = (last: MarketPoint) => {
+  if (!last) return null;
+  if (last.isMarketClosed) return {
+    label: 'MARKET PENDING / CLOSED',
+    desc: `Dữ liệu ETF ngày ${last.date} chưa được cập nhật. Đang theo dõi biến động giá Spot.`,
+    color: 'text-slate-400', bg: 'bg-slate-800/50 border-slate-700', iconColor: 'bg-slate-500'
+  };
+  return last.etfFlow > 0 ? {
+    label: 'INSTITUTIONAL BUYING',
+    desc: 'Dòng tiền tổ chức đang vào mạnh. Cấu trúc thị trường lành mạnh.',
+    color: 'text-emerald-400', bg: 'bg-emerald-950/40 border-emerald-500/50', iconColor: 'bg-emerald-500'
+  } : {
+    label: 'CAPITAL OUTFLOW',
+    desc: 'ETF đang bị rút ròng. Áp lực bán từ phía tổ chức gia tăng.',
+    color: 'text-rose-400', bg: 'bg-rose-950/40 border-rose-500/50', iconColor: 'bg-rose-500'
   };
 };

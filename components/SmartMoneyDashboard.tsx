@@ -1,142 +1,76 @@
 'use client';
 
-import React, { useMemo } from 'react';
-import { 
-  ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell 
-} from 'recharts';
-import { BrainCircuit, Info, Zap } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BrainCircuit, Info } from 'lucide-react';
 import { alignMarketData, analyzeSmartMoney } from '../utils/smartMoneyLogic';
 
-const fmtNum = (num: number, digits = 0) => {
-    return new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: digits,
-    }).format(num);
-}
+const fmt = (v: number) => new Intl.NumberFormat('en-US').format(Math.round(v));
 
 export default function SmartMoneyDashboard({ priceData, etfData }: { priceData: any[], etfData: any }) {
-  
+  const [filter, setFilter] = useState<'1W'|'1M'|'1Y'|'ALL'>('1M');
+
   const chartData = useMemo(() => {
-    if (!etfData?.BTC?.rows || !priceData) return [];
-    const rows = [...etfData.BTC.rows].reverse(); 
-    return alignMarketData(priceData, rows).slice(-30); 
-  }, [priceData, etfData]);
+    if (!priceData.length || !etfData?.BTC?.rows) return [];
+    const aligned = alignMarketData(priceData, etfData.BTC.rows);
+    const len = aligned.length;
+    if (filter === '1W') return aligned.slice(-7);
+    if (filter === '1M') return aligned.slice(-30);
+    if (filter === '1Y') return aligned.slice(-365);
+    return aligned;
+  }, [priceData, etfData, filter]);
 
-  const currentSignal = useMemo(() => {
-    if (chartData.length < 2) return null;
-    return analyzeSmartMoney(chartData[chartData.length - 1], chartData[chartData.length - 2]);
-  }, [chartData]);
+  const signal = useMemo(() => analyzeSmartMoney(chartData[chartData.length - 1]), [chartData]);
 
-  if (!chartData.length) return (
-    <div className="p-8 text-center border border-slate-800 rounded-xl bg-[#151921] text-slate-300 flex flex-col items-center gap-2">
-        <Zap className="animate-bounce text-yellow-500"/>
-        <span>Đang đồng bộ dữ liệu... Vui lòng chờ hoặc chọn lại BTC.</span>
-    </div>
-  );
+  if (!chartData.length) return <div className="p-10 text-center text-slate-500 animate-pulse">Đang đồng bộ dữ liệu lịch sử...</div>;
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-700">
-      
-      {/* 1. AI INSIGHT BOX */}
-      {currentSignal && (
-        <div className={`p-5 rounded-xl border flex items-start gap-4 shadow-lg ${currentSignal.bg}`}>
-           <div className={`p-3 rounded-full shadow-inner ${currentSignal.iconColor}/20`}>
-              <BrainCircuit size={24} className={currentSignal.color.replace('text-', 'stroke-')} />
-           </div>
-           <div>
-              <h4 className={`font-bold text-lg ${currentSignal.color} flex items-center gap-2`}>
-                 {currentSignal.label}
-                 <span className="text-[10px] px-2 py-0.5 border border-current rounded opacity-80 font-mono text-white">AI-SIGNAL</span>
-              </h4>
-              <p className="text-slate-100 text-sm mt-1 leading-relaxed opacity-90">{currentSignal.desc}</p>
-           </div>
-        </div>
-      )}
-
-      {/* 2. STACKED CHARTS CONTAINER */}
-      <div className="bg-[#151921] border border-slate-700 rounded-xl p-4 shadow-2xl ring-1 ring-white/5">
-        
-        {/* CHART A: PRICE vs ETF FLOW */}
-        <div className="h-[280px] w-full mb-1 relative group">
-            <div className="absolute top-2 left-2 z-10 flex flex-col pointer-events-none">
-                <span className="text-[10px] font-bold text-slate-100 bg-black/60 px-2 py-1 rounded backdrop-blur-sm border border-slate-700">
-                    PRICE (Vàng) vs ETF FLOW (Cột)
-                </span>
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row justify-between gap-4">
+        {signal && (
+          <div className={`flex-1 p-4 rounded-xl border ${signal.bg} flex items-center gap-3`}>
+            <BrainCircuit size={20} className={signal.color}/>
+            <div>
+              <div className={`font-bold text-xs ${signal.color}`}>{signal.label}</div>
+              <div className="text-[10px] text-slate-300">{signal.desc}</div>
             </div>
+          </div>
+        )}
+        <div className="flex bg-[#151921] p-1 rounded-lg border border-slate-700 h-fit">
+          {['1W', '1M', '1Y', 'ALL'].map(f => (
+            <button key={f} onClick={() => setFilter(f as any)} className={`px-4 py-1.5 text-[10px] font-bold rounded ${filter===f?'bg-slate-700 text-white':'text-slate-500'}`}>{f}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-[#151921] border border-slate-700 rounded-xl p-4 shadow-2xl">
+        <div className="h-[300px] w-full relative">
+          <div className="absolute top-0 left-0 text-[10px] font-bold text-slate-400 z-10">PRICE vs NET FLOW</div>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} syncId="mktSync">
+              <CartesianGrid strokeDasharray="3 3" stroke="#2B3139" vertical={false} />
+              <XAxis dataKey="date" tick={{fontSize: 9, fill:'#94A3B8'}} />
+              <YAxis yAxisId="p" orientation="left" domain={['auto', 'auto']} tick={{fontSize: 9, fill:'#FBBF24'}} tickFormatter={(v)=>`$${fmt(v)}`}/>
+              <YAxis yAxisId="f" orientation="right" hide />
+              <Tooltip 
+                contentStyle={{backgroundColor: '#0B0E14', borderColor: '#334155'}}
+                formatter={(v:any, n:any, p:any) => [p.payload.isMarketClosed && n==='etfFlow' ? 'CLOSED' : fmt(v), n]}
+              />
+              <Bar yAxisId="f" dataKey="etfFlow" barSize={filter==='ALL'?2:10}>
+                {chartData.map((d, i) => <Cell key={i} fill={d.isMarketClosed ? '#334155' : (d.etfFlow>0?'#10B981':'#F43F5E')} />)}
+              </Bar>
+              <Line yAxisId="p" type="monotone" dataKey="price" stroke="#FBBF24" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="h-[80px] w-full mt-2 border-t border-slate-800 pt-2">
             <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} syncId="marketSync" margin={{top: 10, right: 0, left: 0, bottom: 0}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2B3139" vertical={false} />
-                    <XAxis dataKey="date" hide />
-                    
-                    {/* Trục Y Price: Màu sáng hơn */}
-                    <YAxis yAxisId="price" orientation="left" domain={['auto', 'auto']} 
-                        tick={{fontSize: 11, fill: '#E2E8F0', fontWeight: 600}} 
-                        tickFormatter={(val) => `$${fmtNum(val)}`}
-                        width={65}
-                    />
-                    <YAxis yAxisId="flow" orientation="right" domain={['auto', 'auto']} hide />
-                    
-                    <Tooltip 
-                        contentStyle={{backgroundColor: '#0f172a', borderColor: '#475569', borderRadius: '8px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)'}}
-                        itemStyle={{fontSize: '12px', fontFamily: 'monospace', fontWeight: 'bold', color: '#fff'}}
-                        labelStyle={{color: '#94A3B8', marginBottom: '4px', borderBottom: '1px solid #334155', paddingBottom: '4px'}}
-                        formatter={(val:any, name:any) => [
-                            name === 'funding' ? `${(val*100).toFixed(4)}%` : fmtNum(val), 
-                            name === 'etfFlow' ? 'Net Flow' : (name === 'price' ? 'Price' : name)
-                        ]}
-                    />
-                    
-                    <Bar yAxisId="flow" dataKey="etfFlow" barSize={8} opacity={0.6} animationDuration={1000}>
-                        {chartData.map((d, i) => <Cell key={i} fill={d.etfFlow > 0 ? '#10B981' : '#F43F5E'} />)}
-                    </Bar>
-                    <Line yAxisId="price" type="monotone" dataKey="price" stroke="#FBBF24" strokeWidth={2} dot={false} activeDot={{r: 6, fill:'#FBBF24', stroke:'#FFF'}} animationDuration={1500}/>
+                <ComposedChart data={chartData} syncId="mktSync">
+                    <YAxis hide domain={['auto', 'auto']}/>
+                    <Area type="monotone" dataKey="oi" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.1} dot={false} />
                 </ComposedChart>
             </ResponsiveContainer>
         </div>
-
-        {/* CHART B: OPEN INTEREST */}
-        <div className="h-[100px] w-full mb-1 border-t border-slate-700/50 pt-1 relative">
-             <div className="absolute top-2 left-2 z-10 text-[10px] font-bold text-slate-300 flex items-center gap-1 bg-black/40 px-1 rounded pointer-events-none">
-                OPEN INTEREST <Info size={10}/>
-             </div>
-             <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} syncId="marketSync" margin={{top: 5, right: 0, left: 0, bottom: 0}}>
-                    <XAxis dataKey="date" hide />
-                    <YAxis domain={['auto', 'auto']} hide />
-                    <Tooltip 
-                        contentStyle={{backgroundColor: '#0f172a', borderColor: '#475569'}} 
-                        labelStyle={{display: 'none'}}
-                        formatter={(val:number) => [`$${fmtNum(val)}`, 'Open Interest']}
-                        itemStyle={{color: '#fff'}}
-                    />
-                    <Area type="monotone" dataKey="oi" stroke="#A78BFA" fill="#A78BFA" fillOpacity={0.2} strokeWidth={1.5} animationDuration={1000}/>
-                </ComposedChart>
-            </ResponsiveContainer>
-        </div>
-
-        {/* CHART C: FUNDING RATE */}
-        <div className="h-[100px] w-full border-t border-slate-700/50 pt-1 relative">
-             <div className="absolute top-2 left-2 z-10 text-[10px] font-bold text-slate-300 bg-black/40 px-1 rounded pointer-events-none">FUNDING RATE</div>
-             <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} syncId="marketSync" margin={{top: 5, right: 0, left: 0, bottom: 0}}>
-                    <XAxis dataKey="date" tick={{fontSize: 10, fill: '#E2E8F0'}} tickMargin={5}/>
-                    <YAxis hide />
-                    <ReferenceLine y={0.01} stroke="#64748B" strokeDasharray="3 3"/>
-                    <Tooltip 
-                        contentStyle={{backgroundColor: '#0f172a', borderColor: '#475569'}} 
-                        labelStyle={{color: '#E2E8F0'}}
-                        itemStyle={{color: '#fff'}}
-                        formatter={(val:number) => [`${(val).toFixed(4)}%`, 'Funding Rate']}
-                    />
-                    <Bar dataKey="funding" barSize={12} animationDuration={1000}>
-                        {chartData.map((d, i) => (
-                            <Cell key={i} fill={d.funding > 0.015 ? '#F43F5E' : (d.funding < 0 ? '#10B981' : '#64748B')} />
-                        ))}
-                    </Bar>
-                </ComposedChart>
-            </ResponsiveContainer>
-        </div>
-
       </div>
     </div>
   );
