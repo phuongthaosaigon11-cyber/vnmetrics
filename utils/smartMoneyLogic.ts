@@ -9,37 +9,41 @@ export interface MarketPoint {
 export const alignMarketData = (priceData: any[], etfRows: any[]): MarketPoint[] => {
   if (!priceData || priceData.length === 0 || !etfRows || etfRows.length === 0) return [];
 
-  // 1. Map ETF Data theo ngày (Key: "20 Jan")
+  // Map ETF Data
   const etfMap = new Map();
   etfRows.forEach((row: any) => {
     if (row && row.Date) {
-       // Lấy 2 phần đầu của ngày: "20 Jan 2025" -> "20 Jan"
-       const key = row.Date.split(' ').slice(0, 2).join(' '); 
+       // Xử lý ngày: Nếu là "20 Jan 2025" -> lấy "20 Jan"
+       // Nếu lỗi thì giữ nguyên chuỗi gốc để không bị NaN
+       let key = row.Date;
+       try {
+         const parts = row.Date.split(' ');
+         if (parts.length >= 2) key = `${parts[0]} ${parts[1]}`;
+       } catch (e) {}
+       
        const flow = parseFloat(String(row.Total).replace(/,/g, '')) || 0;
        etfMap.set(key, flow);
     }
   });
 
-  // 2. Merge vào Price Data
+  // Merge Price Data
   const merged: MarketPoint[] = priceData.map((p, index) => {
     const dateObj = new Date(p.fullTime || p.time); 
-    // Format ngày từ Price Data thành "20 Jan" để khớp với ETF
+    // Format ngày ngắn gọn: "20 Jan" (theo locale Anh để khớp dữ liệu)
     const dayStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); 
     
+    // Tìm flow tương ứng, nếu không có (cuối tuần) thì = 0
+    // Thử tìm chính xác hoặc tìm ngày liền kề nếu cần (đơn giản hoá: tìm chính xác)
     const etfFlow = etfMap.get(dayStr) || 0;
 
-    // 3. GIẢ LẬP DERIVATIVES (Simulation Logic)
-    // Nếu bạn có API thật, thay thế đoạn này
+    // Giả lập số liệu phái sinh (cho demo)
     const volatility = Math.abs(p.price - (priceData[index-1]?.price || p.price));
+    const oi = (p.price * 500) + (volatility * 150000) + 50000000; 
     
-    // OI thường tăng khi giá biến động
-    const oi = (p.price * 500) + (volatility * 100000) + (Math.sin(index) * 2000000); 
-    
-    // Funding Rate phản ánh độ hưng phấn
-    let funding = 0.01; // Baseline
-    if (etfFlow > 50) funding += 0.005; // Flow mạnh -> Funding tăng
-    if (etfFlow < -50) funding -= 0.005; // Flow rút -> Funding giảm
-    funding += (Math.random() * 0.004 - 0.002); // Noise nhẹ
+    let funding = 0.01; 
+    if (etfFlow > 50) funding += 0.008; 
+    if (etfFlow < -50) funding -= 0.005; 
+    funding += (Math.random() * 0.004 - 0.002);
 
     return {
       date: dayStr,
@@ -61,38 +65,35 @@ export const analyzeSmartMoney = (lastPoint: MarketPoint, prevPoint: MarketPoint
   const priceTrend = price > prevPrice ? 'UP' : 'DOWN';
   const oiTrend = oi > prevPoint.oi ? 'UP' : 'DOWN';
 
-  // LOGIC 1: SPOT-DRIVEN (Tốt)
   if (etfFlow > 0 && priceTrend === 'UP' && funding < 0.02) {
     return {
       type: 'HEALTHY',
       label: 'SPOT-DRIVEN RALLY',
-      desc: 'Giá tăng nhờ dòng tiền ETF thực. Đòn bẩy thấp. Xu hướng bền vững.',
+      desc: 'Giá tăng nhờ dòng tiền thực. Đòn bẩy thấp. Xu hướng bền.',
       color: 'text-emerald-400',
-      bg: 'bg-emerald-500/10 border-emerald-500/50',
+      bg: 'bg-emerald-950/40 border-emerald-500/50',
       iconColor: 'bg-emerald-500'
     };
   }
 
-  // LOGIC 2: LEVERAGE BUBBLE (Xấu)
   if (etfFlow <= 0 && priceTrend === 'UP' && oiTrend === 'UP') {
     return {
       type: 'DANGER',
       label: 'LEVERAGE BUBBLE',
-      desc: 'Cảnh báo: Giá tăng do đầu cơ đòn bẩy (OI tăng) nhưng ETF không mua. Rủi ro sập hầm.',
+      desc: 'Giá tăng do đầu cơ đòn bẩy (OI tăng) nhưng ETF không mua. Rủi ro cao.',
       color: 'text-rose-400',
-      bg: 'bg-rose-500/10 border-rose-500/50',
+      bg: 'bg-rose-950/40 border-rose-500/50',
       iconColor: 'bg-rose-500'
     };
   }
 
-  // LOGIC 3: ACCUMULATION (Cơ hội)
   if (priceTrend === 'DOWN' && etfFlow > 0) {
     return {
       type: 'OPPORTUNITY',
       label: 'SMART MONEY BUY DIP',
-      desc: 'Giá giảm nhưng Cá voi/ETF đang âm thầm gom hàng. Tín hiệu đảo chiều.',
+      desc: 'Giá giảm nhưng Cá voi đang gom hàng mạnh.',
       color: 'text-blue-400',
-      bg: 'bg-blue-500/10 border-blue-500/50',
+      bg: 'bg-blue-950/40 border-blue-500/50',
       iconColor: 'bg-blue-500'
     };
   }
@@ -100,9 +101,9 @@ export const analyzeSmartMoney = (lastPoint: MarketPoint, prevPoint: MarketPoint
   return {
     type: 'NEUTRAL',
     label: 'NEUTRAL MARKET',
-    desc: 'Thị trường đi ngang hoặc biến động chưa rõ xu hướng dòng tiền.',
-    color: 'text-slate-400',
-    bg: 'bg-slate-800 border-slate-700',
-    iconColor: 'bg-slate-600'
+    desc: 'Thị trường đi ngang, chưa rõ xu hướng.',
+    color: 'text-slate-300',
+    bg: 'bg-slate-800/50 border-slate-700',
+    iconColor: 'bg-slate-500'
   };
 };
