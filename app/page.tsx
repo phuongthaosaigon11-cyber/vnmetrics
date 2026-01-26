@@ -6,7 +6,7 @@ import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import { 
-  Zap, Activity, RefreshCw, Layers, BrainCircuit
+  Zap, Activity, RefreshCw, Layers, BrainCircuit, Table
 } from 'lucide-react';
 
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
@@ -31,13 +31,17 @@ const formatCompact = (number: number) => {
   return new Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 2 }).format(number);
 };
 
+// Hàm format Flow (có màu sắc)
 const formatFlow = (val: any) => {
-  if (!val) return <span className="text-slate-600">-</span>;
+  if (val === undefined || val === null || val === '') return <span className="text-slate-600">-</span>;
   const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
   if (isNaN(num)) return <span className="text-slate-600">-</span>;
   const isPos = num > 0;
-  const niceNum = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }).format(num);
+  const niceNum = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(num);
   
+  // Nếu bằng 0 thì màu xám
+  if (num === 0) return <span className="text-slate-500 font-mono">0.0</span>;
+
   return (
     <span className={`${isPos ? 'text-emerald-400' : 'text-rose-400'} font-bold font-mono`}>
       {num > 0 ? '+' : ''}{niceNum}
@@ -57,6 +61,7 @@ export default function VNMetricsDashboard() {
   const [chartTimeRange, setChartTimeRange] = useState('1D');
   const [chartLoading, setChartLoading] = useState(false);
 
+  // Fetch Logic
   const fetchMarket = async () => {
     try {
       const res = await fetch(COINGECKO_API);
@@ -77,10 +82,9 @@ export default function VNMetricsDashboard() {
       if (range === '1W') days = '7'; if (range === '1M') days = '30'; if (range === '1Y') days = '365';
       const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
       const data = await res.json();
-      
       if (data.prices) {
         return data.prices.map((p: any, i: number) => ({
-          timestamp: p[0], // QUAN TRỌNG: Truyền timestamp gốc
+          timestamp: p[0],
           time: new Date(p[0]).toLocaleDateString(),
           price: p[1],
           volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0
@@ -155,7 +159,9 @@ export default function VNMetricsDashboard() {
             </div>
         </div>
       </header>
+
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
+        {/* TAB MARKET */}
         {activeTab === 'MARKET' && (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 <div className="xl:col-span-4 flex flex-col gap-4 h-[calc(100vh-140px)] overflow-hidden">
@@ -203,34 +209,69 @@ export default function VNMetricsDashboard() {
                 </div>
             </div>
         )}
+
+        {/* TAB ETF - ĐÃ NÂNG CẤP HIỂN THỊ */}
         {activeTab === 'ETF' && (
             <div className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* LEFT: SMART MONEY DASHBOARD (Chart) */}
+                    <div className="lg:col-span-7 space-y-4">
                         <h2 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="text-purple-500"/> Market Structure Analysis</h2>
                         <SmartMoneyDashboard priceData={selectedCoin?.chartData || []} etfData={etfData} />
                     </div>
-                    <div className="lg:col-span-1 bg-[#151921] border border-slate-800 rounded-xl p-4 h-fit">
-                        <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
-                            <h3 className="font-bold text-white">ETF Flows (Daily)</h3>
+
+                    {/* RIGHT: ETF DATA TABLE (Detailed) */}
+                    <div className="lg:col-span-5 bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[600px]">
+                        <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
+                            <h3 className="font-bold text-white flex items-center gap-2"><Table size={16}/> Daily Flows Detail</h3>
                             <div className="flex bg-[#0B0E14] p-1 rounded border border-slate-700">
                                 {['BTC', 'ETH'].map(t => (<button key={t} onClick={() => setEtfTicker(t as any)} className={`px-3 py-1 text-[10px] font-bold rounded ${etfTicker===t?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>{t}</button>))}
                             </div>
                         </div>
-                        <div className="overflow-x-auto max-h-[600px] custom-scrollbar">
-                             <table className="w-full text-xs text-left">
-                                <thead className="text-slate-400 bg-[#0B0E14] sticky top-0 uppercase font-semibold"><tr><th className="p-3">Date</th><th className="p-3 text-right">Net Flow ($M)</th></tr></thead>
+                        
+                        {/* Table Scrollable */}
+                        <div className="overflow-auto custom-scrollbar flex-1 relative">
+                             <table className="w-full text-xs text-left border-collapse">
+                                <thead className="text-slate-400 bg-[#0B0E14] sticky top-0 uppercase font-semibold z-10 shadow-md">
+                                    <tr>
+                                        {/* Render Headers Dynamic */}
+                                        {etfData?.[etfTicker]?.headers?.map((h: string, idx: number) => (
+                                            <th key={idx} className={`p-3 whitespace-nowrap border-b border-slate-800 bg-[#0B0E14] ${idx===0 ? 'sticky left-0 z-20 border-r border-slate-800' : ''}`}>
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
                                 <tbody className="divide-y divide-slate-800">
                                     {etfData?.[etfTicker]?.rows?.map((row: any, i: number) => (
-                                        <tr key={i} className="hover:bg-[#1E2329] transition-colors"><td className="p-3 text-slate-300 font-mono">{row.Date.split(' ').slice(0,2).join(' ')}</td><td className="p-3 text-right">{formatFlow(row.Total)}</td></tr>
+                                        <tr key={i} className="hover:bg-[#1E2329] transition-colors group">
+                                            {etfData?.[etfTicker]?.headers?.map((h: string, colIdx: number) => {
+                                                const val = row[h];
+                                                // Cột Date (Sticky Left)
+                                                if (colIdx === 0) return (
+                                                    <td key={colIdx} className="p-3 text-slate-300 font-mono sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 whitespace-nowrap">
+                                                        {val.split(' ').slice(0,2).join(' ')}
+                                                    </td>
+                                                );
+                                                // Các cột Flow
+                                                return (
+                                                    <td key={colIdx} className="p-3 text-right whitespace-nowrap">
+                                                        {formatFlow(val)}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
                                     ))}
                                 </tbody>
                              </table>
+                             {!etfData && <div className="text-center py-10 text-slate-500 italic">Loading ETF Database...</div>}
                         </div>
                     </div>
                 </div>
             </div>
         )}
+
+        {/* TAB DEX */}
         {activeTab === 'DEX' && (
             <div className="bg-[#151921] border border-slate-800 rounded-xl p-6">
                 <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Layers className="text-emerald-500"/> DEX Volume Ranking</h3>
