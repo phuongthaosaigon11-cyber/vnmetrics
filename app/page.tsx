@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { 
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import { 
-  Zap, Activity, RefreshCw, Layers, BrainCircuit, Table
+  Zap, Activity, RefreshCw, Layers, BrainCircuit, Table, Calendar, Filter
 } from 'lucide-react';
 
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
@@ -18,6 +18,7 @@ const EXCHANGE_RATE = 25450;
 const COINGECKO_API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,chainlink&order=market_cap_desc&per_page=10&page=1&sparkline=false";
 const DEX_API = "https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume";
 
+// --- FORMATTERS ---
 const formatCurrency = (value: number, currency: 'USD' | 'VND' = 'USD') => {
   if (value === undefined || value === null || isNaN(value)) return '-';
   if (currency === 'VND') {
@@ -31,17 +32,17 @@ const formatCompact = (number: number) => {
   return new Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 2 }).format(number);
 };
 
-// Hàm format Flow (có màu sắc)
 const formatFlow = (val: any) => {
   if (val === undefined || val === null || val === '') return <span className="text-slate-600">-</span>;
   const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
   if (isNaN(num)) return <span className="text-slate-600">-</span>;
+  
+  // Xử lý số 0 hoặc 0.0
+  if (num === 0) return <span className="text-slate-600 font-mono">-</span>;
+
   const isPos = num > 0;
   const niceNum = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(num);
   
-  // Nếu bằng 0 thì màu xám
-  if (num === 0) return <span className="text-slate-500 font-mono">0.0</span>;
-
   return (
     <span className={`${isPos ? 'text-emerald-400' : 'text-rose-400'} font-bold font-mono`}>
       {num > 0 ? '+' : ''}{niceNum}
@@ -52,16 +53,22 @@ const formatFlow = (val: any) => {
 export default function VNMetricsDashboard() {
   const [activeTab, setActiveTab] = useState<'MARKET' | 'ETF' | 'DEX'>('MARKET');
   const [currency, setCurrency] = useState<'USD' | 'VND'>('USD');
+  
+  // Data States
   const [cryptos, setCryptos] = useState<any[]>([]);
   const [selectedCoin, setSelectedCoin] = useState<any>(null);
   const [etfData, setEtfData] = useState<any>(null);
   const [dexs, setDexs] = useState<any[]>([]);
+  
+  // Filter States
   const [etfTicker, setEtfTicker] = useState<'BTC' | 'ETH' | 'SOL'>('BTC');
+  const [etfTimeRange, setEtfTimeRange] = useState<'1W' | '1M' | 'ALL'>('1M'); // Mặc định xem 1 tháng
+  
   const [loading, setLoading] = useState(true);
   const [chartTimeRange, setChartTimeRange] = useState('1D');
   const [chartLoading, setChartLoading] = useState(false);
 
-  // Fetch Logic
+  // --- FETCH DATA ---
   const fetchMarket = async () => {
     try {
       const res = await fetch(COINGECKO_API);
@@ -134,6 +141,25 @@ export default function VNMetricsDashboard() {
     }
   };
 
+  // --- LOGIC LỌC DỮ LIỆU BẢNG ETF ---
+  const getFilteredEtfRows = useMemo(() => {
+    if (!etfData?.[etfTicker]?.rows) return [];
+    
+    // 1. Copy mảng để không ảnh hưởng dữ liệu gốc
+    const rows = [...etfData[etfTicker].rows];
+
+    // 2. Đảo ngược: Dữ liệu mới nhất lên đầu
+    // (Giả sử file JSON ghi theo thứ tự thời gian tăng dần)
+    const reversed = rows.reverse();
+
+    // 3. Cắt theo bộ lọc
+    if (etfTimeRange === '1W') return reversed.slice(0, 7); // 7 ngày gần nhất
+    if (etfTimeRange === '1M') return reversed.slice(0, 30); // 30 ngày gần nhất
+    // ALL: Trả về hết (hoặc giới hạn 365 ngày nếu quá dài)
+    return reversed;
+  }, [etfData, etfTicker, etfTimeRange]);
+
+
   return (
     <div className={`min-h-screen bg-[#0B0E14] text-slate-200 ${inter.className} selection:bg-blue-500/30`}>
       <header className="sticky top-0 z-50 bg-[#0B0E14]/95 backdrop-blur-md border-b border-slate-800">
@@ -161,7 +187,8 @@ export default function VNMetricsDashboard() {
       </header>
 
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
-        {/* TAB MARKET */}
+        
+        {/* TAB MARKET (Giữ nguyên) */}
         {activeTab === 'MARKET' && (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                 <div className="xl:col-span-4 flex flex-col gap-4 h-[calc(100vh-140px)] overflow-hidden">
@@ -210,31 +237,60 @@ export default function VNMetricsDashboard() {
             </div>
         )}
 
-        {/* TAB ETF - ĐÃ NÂNG CẤP HIỂN THỊ */}
+        {/* TAB ETF - CẬP NHẬT BẢNG DỮ LIỆU */}
         {activeTab === 'ETF' && (
             <div className="space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* LEFT: SMART MONEY DASHBOARD (Chart) */}
+                    
+                    {/* LEFT: CHART */}
                     <div className="lg:col-span-7 space-y-4">
                         <h2 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="text-purple-500"/> Market Structure Analysis</h2>
                         <SmartMoneyDashboard priceData={selectedCoin?.chartData || []} etfData={etfData} />
                     </div>
 
-                    {/* RIGHT: ETF DATA TABLE (Detailed) */}
+                    {/* RIGHT: TABLE (UPDATED) */}
                     <div className="lg:col-span-5 bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[600px]">
-                        <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
-                            <h3 className="font-bold text-white flex items-center gap-2"><Table size={16}/> Daily Flows Detail</h3>
-                            <div className="flex bg-[#0B0E14] p-1 rounded border border-slate-700">
-                                {['BTC', 'ETH'].map(t => (<button key={t} onClick={() => setEtfTicker(t as any)} className={`px-3 py-1 text-[10px] font-bold rounded ${etfTicker===t?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>{t}</button>))}
+                        
+                        {/* Header của Bảng */}
+                        <div className="p-4 border-b border-slate-800 flex flex-col gap-3 shrink-0">
+                            
+                            {/* Dòng 1: Tiêu đề + Chọn Coin */}
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-white flex items-center gap-2"><Table size={16} className="text-blue-500"/> Flows Detail</h3>
+                                <div className="flex bg-[#0B0E14] p-1 rounded border border-slate-700">
+                                    {['BTC', 'ETH'].map(t => (
+                                        <button key={t} onClick={() => setEtfTicker(t as any)} className={`px-3 py-1 text-[10px] font-bold rounded ${etfTicker===t?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>{t}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Dòng 2: Bộ lọc thời gian (Time Filter) */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1"><Filter size={10}/> View:</span>
+                                <div className="flex bg-[#0B0E14] p-1 rounded border border-slate-800">
+                                    {[
+                                        { id: '1W', label: '1 Tuần' },
+                                        { id: '1M', label: '1 Tháng' },
+                                        { id: 'ALL', label: 'Tất cả' }
+                                    ].map((opt) => (
+                                        <button 
+                                            key={opt.id} 
+                                            onClick={() => setEtfTimeRange(opt.id as any)}
+                                            className={`px-3 py-1 text-[10px] font-bold rounded transition-all ${etfTimeRange === opt.id ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                         
-                        {/* Table Scrollable */}
-                        <div className="overflow-auto custom-scrollbar flex-1 relative">
+                        {/* Body của Bảng (Scrollable) */}
+                        <div className="overflow-auto custom-scrollbar flex-1 relative bg-[#0B0E14]/50">
                              <table className="w-full text-xs text-left border-collapse">
                                 <thead className="text-slate-400 bg-[#0B0E14] sticky top-0 uppercase font-semibold z-10 shadow-md">
                                     <tr>
-                                        {/* Render Headers Dynamic */}
+                                        {/* Render Headers */}
                                         {etfData?.[etfTicker]?.headers?.map((h: string, idx: number) => (
                                             <th key={idx} className={`p-3 whitespace-nowrap border-b border-slate-800 bg-[#0B0E14] ${idx===0 ? 'sticky left-0 z-20 border-r border-slate-800' : ''}`}>
                                                 {h}
@@ -242,29 +298,34 @@ export default function VNMetricsDashboard() {
                                         ))}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-800">
-                                    {etfData?.[etfTicker]?.rows?.map((row: any, i: number) => (
+                                <tbody className="divide-y divide-slate-800/50">
+                                    {getFilteredEtfRows.map((row: any, i: number) => (
                                         <tr key={i} className="hover:bg-[#1E2329] transition-colors group">
                                             {etfData?.[etfTicker]?.headers?.map((h: string, colIdx: number) => {
                                                 const val = row[h];
+                                                
                                                 // Cột Date (Sticky Left)
                                                 if (colIdx === 0) return (
-                                                    <td key={colIdx} className="p-3 text-slate-300 font-mono sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 whitespace-nowrap">
+                                                    <td key={colIdx} className="p-3 text-slate-300 font-mono font-bold sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 whitespace-nowrap flex items-center gap-2">
+                                                        <Calendar size={10} className="text-slate-600"/>
                                                         {val.split(' ').slice(0,2).join(' ')}
                                                     </td>
                                                 );
+                                                
                                                 // Các cột Flow
                                                 return (
-                                                    <td key={colIdx} className="p-3 text-right whitespace-nowrap">
+                                                    <td key={colIdx} className="p-3 text-right whitespace-nowrap bg-transparent">
                                                         {formatFlow(val)}
                                                     </td>
                                                 );
                                             })}
                                         </tr>
                                     ))}
+                                    {getFilteredEtfRows.length === 0 && (
+                                        <tr><td colSpan={10} className="p-10 text-center text-slate-500 italic">Không có dữ liệu hiển thị</td></tr>
+                                    )}
                                 </tbody>
                              </table>
-                             {!etfData && <div className="text-center py-10 text-slate-500 italic">Loading ETF Database...</div>}
                         </div>
                     </div>
                 </div>
