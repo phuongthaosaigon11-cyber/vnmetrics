@@ -9,13 +9,12 @@ export interface MarketPoint {
 export const alignMarketData = (priceData: any[], etfRows: any[]): MarketPoint[] => {
   if (!priceData || priceData.length === 0 || !etfRows || etfRows.length === 0) return [];
 
-  // Map ETF Data
+  // 1. Map ETF Data (Key chuẩn hóa: "20 Jan")
   const etfMap = new Map();
   etfRows.forEach((row: any) => {
     if (row && row.Date) {
-       // Xử lý ngày: Nếu là "20 Jan 2025" -> lấy "20 Jan"
-       // Nếu lỗi thì giữ nguyên chuỗi gốc để không bị NaN
        let key = row.Date;
+       // Cố gắng lấy format "DD Mon" (ví dụ: 20 Jan)
        try {
          const parts = row.Date.split(' ');
          if (parts.length >= 2) key = `${parts[0]} ${parts[1]}`;
@@ -26,17 +25,25 @@ export const alignMarketData = (priceData: any[], etfRows: any[]): MarketPoint[]
     }
   });
 
-  // Merge Price Data
+  // 2. Merge Price Data (Dùng Timestamp để tránh lỗi Invalid Date)
   const merged: MarketPoint[] = priceData.map((p, index) => {
-    const dateObj = new Date(p.fullTime || p.time); 
-    // Format ngày ngắn gọn: "20 Jan" (theo locale Anh để khớp dữ liệu)
-    const dayStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); 
+    // Ưu tiên dùng timestamp số nguyên, nếu không mới parse chuỗi
+    let dateObj: Date;
+    if (p.timestamp) {
+        dateObj = new Date(p.timestamp);
+    } else {
+        dateObj = new Date(p.fullTime || p.time);
+    }
+
+    // Nếu ngày lỗi -> Bỏ qua
+    if (isNaN(dateObj.getTime())) return null;
+
+    // Format ngày ngắn gọn: "20 Jan" (Locale Anh để khớp key ETF)
+    const dayStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     
-    // Tìm flow tương ứng, nếu không có (cuối tuần) thì = 0
-    // Thử tìm chính xác hoặc tìm ngày liền kề nếu cần (đơn giản hoá: tìm chính xác)
     const etfFlow = etfMap.get(dayStr) || 0;
 
-    // Giả lập số liệu phái sinh (cho demo)
+    // Logic giả lập chỉ số phái sinh
     const volatility = Math.abs(p.price - (priceData[index-1]?.price || p.price));
     const oi = (p.price * 500) + (volatility * 150000) + 50000000; 
     
@@ -52,7 +59,7 @@ export const alignMarketData = (priceData: any[], etfRows: any[]): MarketPoint[]
       oi,
       funding
     };
-  });
+  }).filter((item): item is MarketPoint => item !== null); // Lọc bỏ giá trị null
 
   return merged;
 };
@@ -80,7 +87,7 @@ export const analyzeSmartMoney = (lastPoint: MarketPoint, prevPoint: MarketPoint
     return {
       type: 'DANGER',
       label: 'LEVERAGE BUBBLE',
-      desc: 'Giá tăng do đầu cơ đòn bẩy (OI tăng) nhưng ETF không mua. Rủi ro cao.',
+      desc: 'Giá tăng do đầu cơ đòn bẩy (OI tăng) nhưng ETF không mua.',
       color: 'text-rose-400',
       bg: 'bg-rose-950/40 border-rose-500/50',
       iconColor: 'bg-rose-500'
@@ -102,8 +109,8 @@ export const analyzeSmartMoney = (lastPoint: MarketPoint, prevPoint: MarketPoint
     type: 'NEUTRAL',
     label: 'NEUTRAL MARKET',
     desc: 'Thị trường đi ngang, chưa rõ xu hướng.',
-    color: 'text-slate-300',
-    bg: 'bg-slate-800/50 border-slate-700',
+    color: 'text-slate-200',
+    bg: 'bg-slate-800/60 border-slate-600',
     iconColor: 'bg-slate-500'
   };
 };
