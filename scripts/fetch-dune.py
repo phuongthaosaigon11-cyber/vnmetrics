@@ -9,11 +9,13 @@ from dune_client.client import DuneClient
 
 # --- CẤU HÌNH ---
 
-DUNE_API_KEY = "81E4tsyyw6f4kZZVutnM7NNPB9JCQFDQ"  # <--- NHỚ DÁN KEY VÀO ĐÂY
+# Dán API Key của bạn vào dòng dưới (giữ nguyên dấu ngoặc kép)
+
+DUNE_API_KEY = "81E4tsyyw6f4kZZVutnM7NNPB9JCQFDQ"
 
 
 
-# Danh sách các Query cần lấy
+# Danh sách Query ID tương ứng với SQL bạn cung cấp
 
 QUERIES = [
 
@@ -21,7 +23,7 @@ QUERIES = [
 
         "id": 3379919, 
 
-        "name": "Whale Flows",
+        "name": "Whale Flows (SQL 1)",
 
         "file": "public/onchain_flows.json"
 
@@ -31,7 +33,7 @@ QUERIES = [
 
         "id": 3378009, 
 
-        "name": "ETF Holdings", 
+        "name": "ETF Holdings (SQL 2)", 
 
         "file": "public/etf_holdings.json"
 
@@ -53,8 +55,6 @@ def fetch_dune_data():
 
     dune = DuneClient(DUNE_API_KEY)
 
-    
-
     print("🚀 Bắt đầu đồng bộ dữ liệu Dune Analytics...")
 
     
@@ -64,6 +64,8 @@ def fetch_dune_data():
         try:
 
             print(f"   ⏳ Đang lấy {q['name']} (ID: {q['id']})...")
+
+            # Lấy kết quả mới nhất từ Dune
 
             results = dune.get_latest_result(q['id'])
 
