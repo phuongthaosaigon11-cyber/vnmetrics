@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Inter } from 'next/font/google';
 import { 
-  Zap, Table, Radio, Wallet, ArrowUpRight, ArrowDownRight, ExternalLink 
+  Zap, Table, Radio, Wallet, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { ComposedChart, Line, ResponsiveContainer } from 'recharts';
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
@@ -11,7 +11,12 @@ import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const COINGECKO_TOP10 = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,chainlink&order=market_cap_desc&per_page=10&page=1&sparkline=true";
 
-// --- FORMAT HELPER ---
+// PROXY để vượt lỗi CORS khi gọi Binance từ trình duyệt
+const CORS_PROXY = "https://corsproxy.io/?";
+const BINANCE_OI_URL = "https://fapi.binance.com/fapi/v1/openInterestHist?symbol=BTCUSDT&period=1d&limit=90";
+const BINANCE_FUND_URL = "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=270";
+
+// --- FORMATTERS ---
 const fmtUSD = (n:number) => !n||isNaN(n)?'-':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',notation:'compact'}).format(n);
 const fmtAmt = (n:number) => new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(n);
 const fmtFlow = (val:any) => {
@@ -20,60 +25,33 @@ const fmtFlow = (val:any) => {
     return <span className={`font-mono font-bold ${num>0?'text-emerald-400':'text-rose-400'}`}>{num>0?'+':''}{num.toLocaleString()}</span>;
 };
 
-// --- WIDGET 1: SHARK FLOWS (Compact) ---
+// --- WIDGETS ---
 const OnChainFeed = () => {
   const [txs, setTxs] = useState<any[]>([]);
   useEffect(() => { fetch('/onchain_flows.json').then(r=>r.json()).then(setTxs).catch(()=>{}); }, []);
   if (!txs.length) return null;
-
   return (
     <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[400px] shadow-lg mb-6 hover:border-slate-700 transition-all">
         <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center sticky top-0 z-10">
-            <h3 className="font-bold text-slate-100 text-sm flex items-center gap-2">
-                <Radio size={16} className="text-emerald-500 animate-pulse"/> On-chain Flows
-            </h3>
+            <h3 className="font-bold text-slate-100 text-sm flex items-center gap-2"><Radio size={16} className="text-emerald-500 animate-pulse"/> On-chain Flows</h3>
             <span className="text-[9px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">Dune Live</span>
         </div>
         <div className="overflow-auto custom-scrollbar flex-1 bg-[#0B0E14]/30">
             <table className="w-full text-xs text-left border-collapse">
                 <thead className="text-slate-500 bg-[#11141A] sticky top-0 uppercase font-bold text-[9px] z-20">
-                    <tr>
-                        <th className="p-2 border-b border-slate-800">Thời gian</th>
-                        <th className="p-2 border-b border-slate-800">Quỹ/Ví</th>
-                        <th className="p-2 border-b border-slate-800 text-right">BTC</th>
-                        <th className="p-2 border-b border-slate-800 text-right">USD</th>
-                        <th className="p-2 border-b border-slate-800 text-center">Lệnh</th>
-                        <th className="p-2 border-b border-slate-800 text-center">Tx</th>
-                    </tr>
+                    <tr><th className="p-2 border-b border-slate-800">Time</th><th className="p-2 border-b border-slate-800">Wallet</th><th className="p-2 border-b border-slate-800 text-right">BTC</th><th className="p-2 border-b border-slate-800 text-right">USD</th><th className="p-2 border-b border-slate-800 text-center">Type</th><th className="p-2 border-b border-slate-800 text-center">Tx</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/40 text-[10px]">
                     {txs.slice(0,50).map((tx, i) => {
-                        const isDep = tx.flow_type === 'Deposit';
-                        const d = new Date(tx.block_time);
+                        const isDep = tx.flow_type === 'Deposit'; const d = new Date(tx.block_time);
                         return (
                             <tr key={i} className="hover:bg-white/5 transition-colors">
-                                <td className="p-2 text-slate-400 font-mono">
-                                    <div className="text-slate-300">{d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</div>
-                                    <div className="opacity-50">{d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div>
-                                </td>
-                                <td className="p-2">
-                                    <div className="font-bold text-slate-200">{tx.issuer}</div>
-                                    <div className="text-[9px] font-mono text-slate-500">{tx.etf_ticker}</div>
-                                </td>
+                                <td className="p-2 text-slate-400 font-mono"><div className="text-slate-300">{d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</div><div className="opacity-50">{d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})}</div></td>
+                                <td className="p-2"><div className="font-bold text-slate-200">{tx.issuer}</div><div className="text-[9px] font-mono text-slate-500">{tx.etf_ticker}</div></td>
                                 <td className={`p-2 text-right font-mono font-bold ${isDep?'text-emerald-400':'text-rose-400'}`}>{isDep?'+':''}{fmtAmt(tx.amount)}</td>
                                 <td className="p-2 text-right font-mono text-slate-300">{fmtUSD(tx.amount_usd||tx.usd_value)}</td>
-                                <td className="p-2 text-center">
-                                    <span className={`px-1.5 py-0.5 rounded-[3px] text-[9px] font-bold uppercase border ${isDep?'bg-emerald-500/10 border-emerald-500/20 text-emerald-400':'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
-                                        {isDep?'NẠP':'RÚT'}
-                                    </span>
-                                </td>
-                                <td className="p-2 text-center">
-                                    {tx.txs && (
-                                        <div dangerouslySetInnerHTML={{ 
-                                            __html: tx.txs.replace(/<a href="(.*?)"(.*?)>(.*?)<\/a>/, '<a href="$1" target="_blank" class="text-blue-500 hover:text-white inline-flex p-1 hover:bg-slate-800 rounded"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a>') 
-                                        }} />
-                                    )}
-                                </td>
+                                <td className="p-2 text-center"><span className={`px-1.5 py-0.5 rounded-[3px] text-[9px] font-bold uppercase border ${isDep?'bg-emerald-500/10 border-emerald-500/20 text-emerald-400':'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>{isDep?'NẠP':'RÚT'}</span></td>
+                                <td className="p-2 text-center">{tx.txs && (<div dangerouslySetInnerHTML={{ __html: tx.txs.replace(/<a href="(.*?)"(.*?)>(.*?)<\/a>/, '<a href="$1" target="_blank" class="text-blue-500 hover:text-white inline-flex p-1 hover:bg-slate-800 rounded">🔗</a>') }} />)}</td>
                             </tr>
                         );
                     })}
@@ -84,14 +62,10 @@ const OnChainFeed = () => {
   );
 };
 
-// --- WIDGET 2: HOLDINGS ---
 const EtfHoldingsWidget = () => {
   const [holdings, setHoldings] = useState<any[]>([]);
-  useEffect(() => { 
-      fetch('/etf_holdings.json').then(r=>r.json()).then(d => setHoldings(d.map((x:any)=>({...x,usd:x.usd_value||0})).sort((a:any,b:any)=>b.usd-a.usd))).catch(()=>{}); 
-  }, []);
+  useEffect(() => { fetch('/etf_holdings.json').then(r=>r.json()).then(d => setHoldings(d.map((x:any)=>({...x,usd:x.usd_value||0})).sort((a:any,b:any)=>b.usd-a.usd))).catch(()=>{}); }, []);
   if (!holdings.length) return null;
-
   return (
     <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[400px] shadow-lg mb-6 hover:border-slate-700 transition-all">
         <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center sticky top-0 z-10">
@@ -100,21 +74,12 @@ const EtfHoldingsWidget = () => {
         <div className="overflow-auto custom-scrollbar flex-1 bg-[#0B0E14]/30">
             <table className="w-full text-xs text-left border-collapse">
                 <thead className="text-slate-500 bg-[#11141A] sticky top-0 uppercase font-bold text-[9px] z-20">
-                    <tr>
-                        <th className="p-2 border-b border-slate-800">Tổ Chức</th>
-                        <th className="p-2 border-b border-slate-800 text-right">Holdings</th>
-                        <th className="p-2 border-b border-slate-800 text-right">Giá trị ($)</th>
-                        <th className="p-2 border-b border-slate-800 text-right">Thị phần</th>
-                        <th className="p-2 border-b border-slate-800 text-right">Fee</th>
-                    </tr>
+                    <tr><th className="p-2 border-b border-slate-800">Tổ Chức</th><th className="p-2 border-b border-slate-800 text-right">Holdings</th><th className="p-2 border-b border-slate-800 text-right">Giá trị ($)</th><th className="p-2 border-b border-slate-800 text-right">Share</th><th className="p-2 border-b border-slate-800 text-right">Fee</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/40 text-[10px]">
                     {holdings.map((row, i) => (
                         <tr key={i} className="hover:bg-white/5 transition-colors">
-                            <td className="p-2">
-                                <div className="font-bold text-slate-200">{row.plain_issuer || row.issuer}</div>
-                                <div className="text-[9px] font-mono text-slate-500">{row.etf_ticker}</div>
-                            </td>
+                            <td className="p-2"><div className="font-bold text-slate-200">{row.plain_issuer || row.issuer}</div><div className="text-[9px] font-mono text-slate-500">{row.etf_ticker}</div></td>
                             <td className="p-2 text-right font-mono text-slate-300">{fmtAmt(row.tvl || row.amount)}</td>
                             <td className="p-2 text-right font-mono font-bold text-emerald-400">{fmtUSD(row.usd_value)}</td>
                             <td className="p-2 text-right text-slate-400 font-mono">{(row.percentage_of_total*100).toFixed(1)}%</td>
@@ -132,7 +97,7 @@ export default function VNMetricsDashboard() {
   const [activeTab, setActiveTab] = useState<'MARKET' | 'ETF'>('MARKET');
   const [cryptos, setCryptos] = useState<any[]>([]);
   const [etfData, setEtfData] = useState<any>(null);
-  const [marketMetrics, setMarketMetrics] = useState<any>(null);
+  const [marketMetrics, setMarketMetrics] = useState<any>({ prices: [], oi: [], funding: [] });
   const [etfTicker, setEtfTicker] = useState<'BTC' | 'ETH'>('BTC');
   const [loading, setLoading] = useState(true);
 
@@ -140,14 +105,31 @@ export default function VNMetricsDashboard() {
     const init = async () => {
       setLoading(true);
       try {
-        const [mRes, eRes, metricsRes] = await Promise.all([
-            fetch(COINGECKO_TOP10).then(r => r.json()),
-            fetch(`/etf_data.json?t=${Date.now()}`).then(r => r.json()),
-            fetch('/api/metrics').then(r => r.json()) // Gọi API Route mới
+        // 1. Fetch dữ liệu tĩnh (Local) & CoinGecko
+        const [mRes, eRes, pRes] = await Promise.all([
+            fetch(COINGECKO_TOP10).then(r => r.json()).catch(()=>[]),
+            fetch(`/etf_data.json?t=${Date.now()}`).then(r => r.json()).catch(()=>({})),
+            fetch("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=90").then(r => r.json()).catch(()=>({prices:[]}))
         ]);
+        
+        // 2. Fetch Binance (Có fallback Proxy)
+        let oiData = [], fundingData = [];
+        try {
+            // Thử gọi qua Proxy để tránh CORS
+            const [oiRes, fundRes] = await Promise.all([
+                fetch(CORS_PROXY + encodeURIComponent(BINANCE_OI_URL)).then(r => r.json()),
+                fetch(CORS_PROXY + encodeURIComponent(BINANCE_FUND_URL)).then(r => r.json())
+            ]);
+            oiData = Array.isArray(oiRes) ? oiRes : [];
+            fundingData = Array.isArray(fundRes) ? fundRes : [];
+        } catch (err) {
+            console.warn("Lỗi tải data Binance:", err);
+            // Không block UI nếu lỗi Binance
+        }
+
         setCryptos(mRes);
         setEtfData(eRes);
-        setMarketMetrics(metricsRes);
+        setMarketMetrics({ prices: pRes.prices || [], oi: oiData, funding: fundingData });
       } catch(e) { console.error(e); }
       setLoading(false);
     };
@@ -158,7 +140,6 @@ export default function VNMetricsDashboard() {
     if (!etfData?.[etfTicker]) return null;
     const rawHeaders = etfData[etfTicker].headers || [];
     const sortedHeaders = ["Date", "Total", ...rawHeaders.filter((h: string) => h !== "Date" && h !== "Total")];
-    // SORT MỚI NHẤT LÊN ĐẦU
     const rows = [...etfData[etfTicker].rows].sort((a:any, b:any) => new Date(b.Date).getTime() - new Date(a.Date).getTime());
     return { headers: sortedHeaders, rows };
   }, [etfData, etfTicker]);
@@ -178,9 +159,7 @@ export default function VNMetricsDashboard() {
             </nav>
         </div>
       </header>
-
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
-        
         {activeTab === 'MARKET' && (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {loading && <div className="col-span-4 text-center py-20 text-slate-500">Đang tải dữ liệu...</div>}
@@ -190,33 +169,14 @@ export default function VNMetricsDashboard() {
                     return (
                     <div key={c.id} className="bg-[#151921] border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-blue-500/50 transition-all group h-[140px]">
                         <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-3">
-                                <img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/>
-                                <div>
-                                    <div className="font-bold text-white text-sm">{c.name}</div>
-                                    <div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div>
-                                <div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>
-                                    {isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}
-                                    {Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%
-                                </div>
-                            </div>
+                            <div className="flex items-center gap-3"><img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/><div><div className="font-bold text-white text-sm">{c.name}</div><div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div></div></div>
+                            <div className="text-right"><div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div><div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>{isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%</div></div>
                         </div>
-                        <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <ComposedChart data={sparklineData}>
-                                    <Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} />
-                                </ComposedChart>
-                            </ResponsiveContainer>
-                        </div>
+                        <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={sparklineData}><Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} /></ComposedChart></ResponsiveContainer></div>
                     </div>
                 )})}
              </div>
         )}
-
         {activeTab === 'ETF' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-2">
                 <div className="lg:col-span-7 space-y-6">
@@ -224,7 +184,6 @@ export default function VNMetricsDashboard() {
                     <OnChainFeed />
                     <EtfHoldingsWidget />
                 </div>
-
                 <div className="lg:col-span-5 bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[850px] shadow-lg sticky top-20 overflow-hidden">
                     <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center shrink-0">
                         <div className="flex items-center gap-2 font-bold text-white text-sm"><Table size={16}/> Lịch sử Dòng tiền ($M)</div>
@@ -232,24 +191,15 @@ export default function VNMetricsDashboard() {
                             {['BTC','ETH'].map(t => (<button key={t} onClick={()=>setEtfTicker(t as any)} className={`px-4 py-0.5 text-[10px] font-bold rounded transition-all ${etfTicker===t?'bg-blue-600 text-white':'text-slate-500 hover:text-white'}`}>{t}</button>))}
                         </div>
                     </div>
-                    
                     <div className="overflow-auto flex-1 custom-scrollbar bg-[#0B0E14]/30">
                         <table className="w-full text-[10px] text-left border-collapse">
                             <thead className="bg-[#11141A] sticky top-0 z-20 text-slate-400 uppercase font-bold shadow-md">
-                                <tr>
-                                    {etfTable?.headers.map((h, i) => (
-                                        <th key={i} className={`p-3 border-b border-slate-800 whitespace-nowrap ${i===0?'sticky left-0 bg-[#11141A] z-30 border-r border-slate-800':''} ${h==='Total'?'text-white bg-[#1E2329]':''}`}>{h}</th>
-                                    ))}
-                                </tr>
+                                <tr>{etfTable?.headers.map((h, i) => (<th key={i} className={`p-3 border-b border-slate-800 whitespace-nowrap ${i===0?'sticky left-0 bg-[#11141A] z-30 border-r border-slate-800':''} ${h==='Total'?'text-white bg-[#1E2329]':''}`}>{h}</th>))}</tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800/50">
                                 {etfTable?.rows.map((r:any, i:number) => (
                                     <tr key={i} className="hover:bg-[#1E2329] transition-colors group">
-                                        {etfTable.headers.map((h, j) => (
-                                            <td key={j} className={`p-3 whitespace-nowrap border-b border-slate-800/50 ${j===0?'sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 font-bold text-slate-300':''} ${h==='Total'?'bg-[#1E2329]/50 font-black border-r border-slate-800/50':''}`}>
-                                                {h==="Date" ? r[h] : fmtFlow(r[h])}
-                                            </td>
-                                        ))}
+                                        {etfTable.headers.map((h, j) => (<td key={j} className={`p-3 whitespace-nowrap border-b border-slate-800/50 ${j===0?'sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 font-bold text-slate-300':''} ${h==='Total'?'bg-[#1E2329]/50 font-black border-r border-slate-800/50':''}`}>{h==="Date" ? r[h] : fmtFlow(r[h])}</td>))}
                                     </tr>
                                 ))}
                             </tbody>

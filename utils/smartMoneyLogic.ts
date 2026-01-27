@@ -1,4 +1,4 @@
-// Format ngày chuẩn YYYY-MM-DD
+// FILE: utils/smartMoneyLogic.ts
 const normalizeDate = (input: any): string => {
   try {
     const d = new Date(input);
@@ -15,7 +15,7 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
 
   // 1. Map ETF Data
   const etfMap = new Map<string, number>();
-  if (etfRows) {
+  if (etfRows && Array.isArray(etfRows)) {
     etfRows.forEach((row: any) => {
       if (row?.Date) {
          const dKey = normalizeDate(row.Date);
@@ -25,19 +25,18 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
     });
   }
 
-  // 2. Map OI Data (Binance trả về timestamp ms)
-  // Data Binance: { symbol, sumOpenInterest, sumOpenInterestValue, timestamp }
+  // 2. Map OI Data (Binance)
   const oiMap = new Map<string, number>();
   if (Array.isArray(oiData)) {
     oiData.forEach((d: any) => {
-        oiMap.set(normalizeDate(d.timestamp), parseFloat(d.sumOpenInterestValue)); // Lấy giá trị USD
+        // Binance trả về timestamp ms
+        oiMap.set(normalizeDate(d.timestamp), parseFloat(d.sumOpenInterestValue || d.sumOpenInterest));
     });
   }
 
-  // 3. Map Funding Data (Binance 8h/lần -> Lấy trung bình ngày hoặc cú chốt cuối ngày)
+  // 3. Map Funding Data (Binance - Average Daily)
   const fundMap = new Map<string, number>();
   if (Array.isArray(fundingData)) {
-      // Group by day -> Average
       const tempGroup: Record<string, number[]> = {};
       fundingData.forEach((d:any) => {
           const key = normalizeDate(d.fundingTime);
@@ -46,24 +45,23 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
       });
       Object.keys(tempGroup).forEach(k => {
           const sum = tempGroup[k].reduce((a,b)=>a+b,0);
-          fundMap.set(k, sum / tempGroup[k].length); // Average daily funding
+          fundMap.set(k, sum / tempGroup[k].length); 
       });
   }
 
-  // 4. Merge All (Dùng Price làm trục chính)
+  // 4. Merge Data (Dùng Price CoinGecko làm trục chính)
   return priceData.map((p) => {
-    const dateObj = new Date(p[0]); // CoinGecko: [timestamp, price]
+    const dateObj = new Date(p[0]); // [timestamp, price]
     const dateKey = normalizeDate(dateObj); 
     
     const displayDate = dateObj.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }); 
     const fullDate = dateObj.toLocaleDateString('vi-VN');
 
-    // Lấy ETF Flow
     const hasData = etfMap.has(dateKey);
     const etfFlow = hasData ? etfMap.get(dateKey)! : 0;
     const isMarketClosed = !hasData;
 
-    // Lấy OI & Funding (Nếu không có data ngày đó, lấy ngày liền trước hoặc 0)
+    // Fallback: Nếu không có data OI (do lỗi API), dùng 0
     const oi = oiMap.get(dateKey) || 0;
     const funding = fundMap.get(dateKey) || 0;
 
@@ -73,8 +71,8 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
       timestamp: dateObj.getTime(),
       price: p[1],
       etfFlow,
-      oi,       // Real USD Value
-      funding,  // Real Rate
+      oi,       
+      funding, 
       isMarketClosed
     };
   }).sort((a, b) => a.timestamp - b.timestamp);
@@ -89,22 +87,16 @@ export const analyzeSmartMoney = (lastItem: any) => {
     color: 'text-slate-400', bg: 'bg-slate-800/50 border-slate-700', iconColor: 'bg-slate-500'
   };
   
-  // Logic kết hợp ETF + Funding
-  if (lastItem.etfFlow > 0 && lastItem.funding > 0.01) return {
-    label: 'BULLISH MẠNH',
-    desc: 'ETF mua ròng + Funding dương (Long áp đảo).',
+  // Logic phân tích
+  if (lastItem.etfFlow > 0) return {
+    label: 'DÒNG TIỀN MUA RÒNG',
+    desc: 'Cá mập ETF đang gom hàng (Net Inflow Dương).',
     color: 'text-emerald-400', bg: 'bg-emerald-950/40 border-emerald-500/50', iconColor: 'bg-emerald-500'
   };
 
-  if (lastItem.etfFlow < 0) return {
-    label: 'ÁP LỰC BÁN',
-    desc: 'ETF đang rút ròng. Cẩn trọng.',
-    color: 'text-rose-400', bg: 'bg-rose-950/40 border-rose-500/50', iconColor: 'bg-rose-500'
-  };
-
   return {
-    label: 'TRUNG TÍNH / TÍCH LŨY',
-    desc: 'Dòng tiền chưa rõ xu hướng.',
-    color: 'text-amber-400', bg: 'bg-amber-950/40 border-amber-500/50', iconColor: 'bg-amber-500'
+    label: 'ÁP LỰC BÁN',
+    desc: 'Dòng tiền ETF đang rút ra (Net Outflow Âm).',
+    color: 'text-rose-400', bg: 'bg-rose-950/40 border-rose-500/50', iconColor: 'bg-rose-500'
   };
 };
