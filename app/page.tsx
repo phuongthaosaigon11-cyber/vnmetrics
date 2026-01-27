@@ -1,312 +1,197 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import { 
-  ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
-} from 'recharts';
-import { 
-  Zap, Activity, RefreshCw, Layers, BrainCircuit, Table, Calendar, Filter, ArrowDown
+  Zap, Activity, Layers, BrainCircuit, Table, Radio, ExternalLink, PieChart, Wallet 
 } from 'lucide-react';
-
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
-const EXCHANGE_RATE = 25450; 
-const COINGECKO_API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,chainlink&order=market_cap_desc&per_page=10&page=1&sparkline=false";
-const DEX_API = "https://api.llama.fi/overview/dexs?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume";
+const EXCHANGE_RATE = 25450;
+const COINGECKO_API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&order=market_cap_desc&sparkline=false";
 
-// --- FORMATTERS ---
-const formatCurrency = (value: number, currency: 'USD' | 'VND' = 'USD') => {
-  if (value === undefined || value === null || isNaN(value)) return '-';
-  if (currency === 'VND') {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value * EXCHANGE_RATE).replace('₫', ' VND');
-  }
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+const fmt = (v: any) => {
+    if (v === undefined || v === null || v === '') return '-';
+    const n = typeof v === 'string' ? parseFloat(v.replace(/,/g, '')) : v;
+    if (isNaN(n) || n === 0) return <span className="opacity-30">0.0</span>;
+    return <span className={`font-mono font-bold ${n>0?'text-emerald-400':'text-rose-400'}`}>{n>0?'+':''}{n.toLocaleString()}</span>;
 };
 
-const formatCompact = (number: number) => {
-  if (!number) return '-';
-  return new Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 2 }).format(number);
-};
+// --- WIDGET 1: ON-CHAIN FLOWS (WHALE ALERT) ---
+const OnChainFeed = () => {
+  const [txs, setTxs] = useState<any[]>([]);
+  useEffect(() => { fetch('/onchain_flows.json').then(r=>r.json()).then(setTxs).catch(()=>{}); }, []);
 
-const formatFlow = (val: any) => {
-  if (val === undefined || val === null || val === '') return <span className="text-slate-600">-</span>;
-  const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
-  if (isNaN(num)) return <span className="text-slate-600">-</span>;
-  
-  if (num === 0) return <span className="text-slate-600 font-mono opacity-50">0.0</span>;
+  if (txs.length === 0) return <div className="h-full flex items-center justify-center text-slate-600 text-xs italic">Chưa có dữ liệu Flows (Chạy script Python)</div>;
 
-  const isPos = num > 0;
-  const niceNum = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(num);
-  
   return (
-    <span className={`${isPos ? 'text-emerald-400' : 'text-rose-400'} font-bold font-mono`}>
-      {num > 0 ? '+' : ''}{niceNum}
-    </span>
+    <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[320px] overflow-hidden">
+        <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center sticky top-0 z-10">
+            <h3 className="font-bold text-white text-xs flex items-center gap-2"><Radio size={14} className="text-emerald-500 animate-pulse"/> Whale Alert (Flows)</h3>
+            <span className="text-[10px] text-slate-500">Source: Dune</span>
+        </div>
+        <div className="overflow-auto custom-scrollbar flex-1">
+            <table className="w-full text-[10px] text-left">
+                <thead className="text-slate-500 bg-[#0B0E14] sticky top-0 uppercase">
+                    <tr><th className="p-2">Time</th><th className="p-2">ETF/Entity</th><th className="p-2 text-right">Amt (BTC)</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                    {txs.slice(0, 20).map((tx, i) => (
+                        <tr key={i} className="hover:bg-white/5 transition-colors">
+                            <td className="p-2 text-slate-400 whitespace-nowrap">{new Date(tx.block_time).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</td>
+                            <td className="p-2 font-bold text-blue-400">{tx.issuer || tx.etf_ticker || 'Unknown'}</td>
+                            <td className={`p-2 text-right font-mono font-bold ${tx.amount > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{tx.amount > 0 ? '📥' : '📤'} {Math.abs(tx.amount).toFixed(2)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+  );
+};
+
+// --- WIDGET 2: ON-CHAIN HOLDINGS (NEW) ---
+const EtfHoldingsWidget = () => {
+  const [holdings, setHoldings] = useState<any[]>([]);
+  useEffect(() => { 
+      fetch('/etf_holdings.json').then(r=>r.json()).then(data => {
+          // Lọc và sort dữ liệu Holdings (Giả sử cột là 'balance' hoặc 'amount')
+          const processed = data
+            .map((d:any) => ({ name: d.etf_ticker || d.issuer, val: d.balance || d.total_supply || d.amount || 0 }))
+            .sort((a:any, b:any) => b.val - a.val)
+            .slice(0, 8); // Top 8
+          setHoldings(processed);
+      }).catch(()=>{}); 
+  }, []);
+
+  if (holdings.length === 0) return <div className="h-full flex items-center justify-center text-slate-600 text-xs italic">Chưa có dữ liệu Holdings (Chạy script Python)</div>;
+
+  return (
+    <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[320px] overflow-hidden">
+        <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center sticky top-0 z-10">
+            <h3 className="font-bold text-white text-xs flex items-center gap-2"><Wallet size={14} className="text-amber-500"/> Top Holdings (On-chain)</h3>
+            <span className="text-[10px] text-slate-500">Total BTC Held</span>
+        </div>
+        <div className="flex-1 p-2">
+            <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart layout="vertical" data={holdings} margin={{top:5, right:20, left:20, bottom:5}}>
+                    <XAxis type="number" hide />
+                    <YAxis dataKey="name" type="category" width={50} tick={{fontSize: 10, fill:'#94A3B8'}} />
+                    <Tooltip 
+                        contentStyle={{backgroundColor: '#0B0E14', borderColor: '#334155'}}
+                        formatter={(val:number) => [new Intl.NumberFormat('en-US').format(Math.round(val)) + ' BTC', 'Holdings']}
+                    />
+                    <Bar dataKey="val" barSize={16} radius={[0, 4, 4, 0]}>
+                        {holdings.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === 0 ? '#FBBF24' : '#3B82F6'} />
+                        ))}
+                    </Bar>
+                </ComposedChart>
+            </ResponsiveContainer>
+        </div>
+    </div>
   );
 };
 
 export default function VNMetricsDashboard() {
   const [activeTab, setActiveTab] = useState<'MARKET' | 'ETF' | 'DEX'>('MARKET');
-  const [currency, setCurrency] = useState<'USD' | 'VND'>('USD');
   const [cryptos, setCryptos] = useState<any[]>([]);
   const [selectedCoin, setSelectedCoin] = useState<any>(null);
   const [etfData, setEtfData] = useState<any>(null);
   const [dexs, setDexs] = useState<any[]>([]);
-  
-  const [etfTicker, setEtfTicker] = useState<'BTC' | 'ETH' | 'SOL'>('BTC');
+  const [etfTicker, setEtfTicker] = useState<'BTC' | 'ETH'>('BTC');
+  const [etfFullPrice, setEtfFullPrice] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [chartTimeRange, setChartTimeRange] = useState('1D');
-  const [chartLoading, setChartLoading] = useState(false);
-
-  // --- FETCHING ---
-  const fetchMarket = async () => {
-    try {
-      const res = await fetch(COINGECKO_API);
-      if (!res.ok) throw new Error('Limit Rate');
-      const data = await res.json();
-      setCryptos(data);
-      if (!selectedCoin && data.length > 0) {
-        const btc = data.find((c:any) => c.symbol === 'btc') || data[0];
-        handleSelectCoin(btc); 
-      }
-    } catch (e) { console.error("Market fetch error", e); }
-  };
-
-  const fetchCoinChart = async (coinId: string, range: string) => {
-    setChartLoading(true);
-    try {
-      let days = '1';
-      if (range === '1W') days = '7'; if (range === '1M') days = '30'; if (range === '1Y') days = '365';
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`);
-      const data = await res.json();
-      if (data.prices) {
-        return data.prices.map((p: any, i: number) => ({
-          timestamp: p[0],
-          time: new Date(p[0]).toLocaleDateString(),
-          price: p[1],
-          volume: data.total_volumes[i] ? data.total_volumes[i][1] : 0
-        }));
-      }
-      return [];
-    } catch (e) { return []; }
-    finally { setChartLoading(false); }
-  };
-
-  const fetchETF = async () => {
-    try {
-      const res = await fetch(`/etf_data.json?t=${Date.now()}`);
-      const json = await res.json();
-      setEtfData(json);
-    } catch (e) {}
-  };
-
-  const fetchDEX = async () => {
-    try {
-      const res = await fetch(DEX_API);
-      const json = await res.json();
-      if (json.protocols) setDexs(json.protocols.sort((a:any, b:any) => (b.total24h||0) - (a.total24h||0)).slice(0, 15));
-    } catch (e) {}
-  };
 
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchMarket(), fetchETF(), fetchDEX()]);
+      await Promise.all([
+        fetch(COINGECKO_API).then(r => r.json()).then(d => {setCryptos(d); setSelectedCoin(d[0])}),
+        fetch(`/etf_data.json?t=${Date.now()}`).then(r => r.json()).then(setEtfData),
+        fetch("https://api.llama.fi/overview/dexs?dataType=dailyVolume").then(r => r.json()).then(d => setDexs(d.protocols?.sort((a:any,b:any)=>(b.total24h||0)-(a.total24h||0)).slice(0,15))),
+        fetch("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365").then(r => r.json()).then(d => setEtfFullPrice(d.prices.map((p:any)=>({timestamp: p[0], price: p[1]}))))
+      ]);
       setLoading(false);
     };
     init();
   }, []);
 
-  const handleSelectCoin = async (coin: any) => {
-    setSelectedCoin({ ...coin, chartData: [] });
-    const chart = await fetchCoinChart(coin.id, chartTimeRange);
-    setSelectedCoin({ ...coin, chartData: chart });
-  };
-
-  const handleTimeChange = async (range: string) => {
-    setChartTimeRange(range);
-    if (selectedCoin) {
-      const chart = await fetchCoinChart(selectedCoin.id, range);
-      setSelectedCoin({ ...selectedCoin, chartData: chart });
-    }
-  };
-
-  // --- ETF TABLE LOGIC (QUAN TRỌNG) ---
-  const etfTableData = useMemo(() => {
-    if (!etfData?.[etfTicker]) return { headers: [], rows: [] };
-    
-    // 1. Lấy headers gốc
-    let headers = [...etfData[etfTicker].headers];
-    
-    // 2. Tìm vị trí cột "Total"
-    const totalIdx = headers.indexOf("Total");
-    
-    // 3. Sắp xếp lại Header: Date -> Total -> Các quỹ khác
-    const newHeaders = ["Date"];
-    if (totalIdx !== -1) newHeaders.push("Total");
-    headers.forEach(h => {
-        if (h !== "Date" && h !== "Total") newHeaders.push(h);
-    });
-
-    // 4. Lấy Rows và đảo ngược (Mới nhất lên đầu)
+  const etfTable = useMemo(() => {
+    if (!etfData?.[etfTicker]) return null;
+    const rawHeaders = etfData[etfTicker].headers;
+    const sortedHeaders = ["Date", "Total", ...rawHeaders.filter((h:string)=> h!=="Date" && h!=="Total")];
     const rows = [...etfData[etfTicker].rows].reverse();
-
-    return { headers: newHeaders, rows };
+    const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (rows[0]?.Date !== todayStr) rows.unshift({ Date: todayStr, Total: 0, isPending: true });
+    return { headers: sortedHeaders, rows };
   }, [etfData, etfTicker]);
 
   return (
-    <div className={`min-h-screen bg-[#0B0E14] text-slate-200 ${inter.className} selection:bg-blue-500/30`}>
+    <div className={`min-h-screen bg-[#0B0E14] text-slate-200 ${inter.className}`}>
       <header className="sticky top-0 z-50 bg-[#0B0E14]/95 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
             <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <Zap className="text-white fill-current" size={18}/>
-                </div>
-                <div>
-                    <h1 className="text-xl font-bold text-white leading-none tracking-tight">VN<span className="text-blue-500">Metrics</span></h1>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Crypto Data Terminal</p>
-                </div>
+                <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center"><Zap className="text-white" size={18}/></div>
+                <h1 className="text-xl font-bold">VN<span className="text-blue-500">Metrics</span></h1>
             </div>
-            <nav className="hidden md:flex bg-[#151921] p-1 rounded-lg border border-slate-800">
-                {[{id: 'MARKET', label: 'Thị trường', icon: Activity}, {id: 'ETF', label: 'Smart Money & ETF', icon: BrainCircuit}, {id: 'DEX', label: 'DEX Volume', icon: Layers}].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-5 py-2 rounded-md text-xs font-bold transition-all ${activeTab === tab.id ? 'bg-[#252A33] text-white shadow-sm ring-1 ring-slate-600' : 'text-slate-400 hover:text-white hover:bg-[#1E2329]'}`}>
-                        <tab.icon size={14}/> {tab.label}
-                    </button>
+            <nav className="flex bg-[#151921] p-1 rounded-lg border border-slate-800 text-xs font-bold">
+                {[{id:'MARKET',l:'Thị trường'},{id:'ETF',l:'Smart Money & ETF'}].map(t => (
+                    <button key={t.id} onClick={()=>setActiveTab(t.id as any)} className={`px-5 py-2 rounded-md ${activeTab===t.id?'bg-slate-700 text-white':'text-slate-400'}`}>{t.l}</button>
                 ))}
             </nav>
-            <div className="flex items-center gap-3">
-                <button onClick={() => setCurrency(currency === 'USD' ? 'VND' : 'USD')} className="px-3 py-1.5 bg-[#151921] hover:bg-[#1E2329] border border-slate-800 rounded-lg text-xs font-bold text-slate-200 border-slate-700 w-14">{currency}</button>
-            </div>
         </div>
       </header>
 
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
-        {/* MARKET TAB (Giữ nguyên) */}
-        {activeTab === 'MARKET' && (
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                <div className="xl:col-span-4 flex flex-col gap-4 h-[calc(100vh-140px)] overflow-hidden">
-                    <div className="bg-[#151921] border border-slate-800 rounded-xl p-4 flex flex-col h-full">
-                        <h3 className="text-slate-300 text-xs font-bold uppercase mb-4">Assets Ranking</h3>
-                        <div className="overflow-y-auto pr-2 space-y-2 flex-1 custom-scrollbar">
-                            {loading ? <div className="text-center text-slate-500 py-10">Loading...</div> : 
-                            cryptos.map(coin => (
-                                <div key={coin.id} onClick={() => handleSelectCoin(coin)} className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${selectedCoin?.id === coin.id ? 'bg-blue-600/20 border-blue-500/50' : 'bg-[#1E2329]/50 border-transparent hover:bg-[#1E2329] hover:border-slate-700'}`}>
-                                    <div className="flex items-center gap-3"><img src={coin.image} alt={coin.symbol} className="w-8 h-8 rounded-full"/><div><div className={`font-bold text-sm ${selectedCoin?.id === coin.id ? 'text-white' : 'text-slate-200'}`}>{coin.name}</div><div className="text-[10px] text-slate-400 font-mono">{coin.symbol.toUpperCase()}</div></div></div>
-                                    <div className="text-right"><div className="text-sm font-bold font-mono text-white tracking-wide">{formatCurrency(coin.current_price, currency)}</div><div className={`text-[10px] font-bold ${coin.price_change_percentage_24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{coin.price_change_percentage_24h.toFixed(2)}%</div></div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-                <div className="xl:col-span-8 flex flex-col gap-6">
-                    {selectedCoin ? (
-                        <div className="bg-[#151921] border border-slate-800 rounded-xl p-1 shadow-2xl h-full">
-                             <div className="bg-[#0B0E14] rounded-lg p-5 border border-slate-800/50 h-full flex flex-col">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-4"><img src={selectedCoin.image} className="w-12 h-12 rounded-full"/><div><h2 className="text-2xl font-bold text-white">{selectedCoin.name}</h2><span className="text-slate-400 text-xs font-mono">{selectedCoin.symbol.toUpperCase()}</span></div></div>
-                                    <div className="flex bg-[#151921] p-1 rounded-lg border border-slate-800">
-                                        {['1D', '1W', '1M', '1Y'].map(range => (<button key={range} onClick={() => handleTimeChange(range)} className={`px-3 py-1 text-xs font-bold rounded ${chartTimeRange===range?'bg-slate-700 text-white':'text-slate-400 hover:text-slate-200'}`}>{range}</button>))}
-                                    </div>
-                                </div>
-                                <div className="flex-1 min-h-[400px]">
-                                    {chartLoading && <div className="text-center pt-20 text-slate-500 flex flex-col items-center gap-2"><RefreshCw className="animate-spin"/> Loading Chart...</div>}
-                                    {!chartLoading && selectedCoin.chartData && (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={selectedCoin.chartData}>
-                                                <defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/></linearGradient></defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#1E2329" vertical={false}/>
-                                                <XAxis dataKey="time" tick={{fontSize: 10, fill: '#9CA3AF'}} tickMargin={10}/>
-                                                <YAxis orientation="right" domain={['auto', 'auto']} tick={{fontSize: 11, fill: '#E2E8F0'}} tickFormatter={(val) => currency === 'USD' ? `$${new Intl.NumberFormat('en-US').format(val)}` : ''}/>
-                                                <Tooltip contentStyle={{backgroundColor: '#151921', borderColor: '#334155'}} itemStyle={{color: '#fff', fontWeight: 'bold'}} formatter={(val:number) => [`$${new Intl.NumberFormat('en-US').format(val)}`, 'Price']}/>
-                                                <Area type="monotone" dataKey="price" stroke="#3B82F6" strokeWidth={2} fill="url(#colorPrice)" activeDot={{r:5, stroke:'#fff'}}/>
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    )}
-                                </div>
-                             </div>
-                        </div>
-                    ) : <div className="text-center py-20 text-slate-500">Select a coin to view details</div>}
-                </div>
-            </div>
-        )}
-
-        {/* ETF TAB */}
+        {activeTab === 'MARKET' && <div className="text-center py-20 opacity-50">Chọn tab Smart Money để xem chi tiết ETF...</div>}
+        
         {activeTab === 'ETF' && (
-            <div className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* CHART */}
-                    <div className="lg:col-span-7 space-y-4">
-                        <h2 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="text-purple-500"/> Market Structure Analysis</h2>
-                        <SmartMoneyDashboard priceData={selectedCoin?.chartData || []} etfData={etfData} />
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in">
+                {/* CỘT TRÁI: BIỂU ĐỒ LỚN + WIDGETS DUNE */}
+                <div className="lg:col-span-7 space-y-4">
+                    <SmartMoneyDashboard priceData={etfFullPrice} etfData={etfData} />
+                    
+                    {/* KHU VỰC ON-CHAIN DUNE (2 WIDGETS) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <OnChainFeed />       {/* Whale Alert (Query 3379919) */}
+                        <EtfHoldingsWidget /> {/* Top Holdings (Query 3378009) */}
                     </div>
+                </div>
 
-                    {/* TABLE */}
-                    <div className="lg:col-span-5 bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[600px]">
-                        <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
-                            <h3 className="font-bold text-white flex items-center gap-2"><Table size={16}/> Flows Detail</h3>
-                            <div className="flex bg-[#0B0E14] p-1 rounded border border-slate-700">
-                                {['BTC', 'ETH'].map(t => (<button key={t} onClick={() => setEtfTicker(t as any)} className={`px-3 py-1 text-[10px] font-bold rounded ${etfTicker===t?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>{t}</button>))}
-                            </div>
+                {/* CỘT PHẢI: BẢNG DỮ LIỆU */}
+                <div className="lg:col-span-5 bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[700px] overflow-hidden">
+                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#0B0E14]/50">
+                        <div className="flex items-center gap-2 font-bold text-white"><Table size={16}/> Flows Table</div>
+                        <div className="flex bg-black p-1 rounded border border-slate-800">
+                            {['BTC','ETH'].map(t => (<button key={t} onClick={()=>setEtfTicker(t as any)} className={`px-4 py-1 text-[10px] font-bold rounded ${etfTicker===t?'bg-blue-600':'text-slate-500'}`}>{t}</button>))}
                         </div>
-                        
-                        <div className="overflow-auto custom-scrollbar flex-1 relative bg-[#0B0E14]/50">
-                             <table className="w-full text-xs text-left border-collapse">
-                                <thead className="text-slate-400 bg-[#0B0E14] sticky top-0 uppercase font-semibold z-10 shadow-md">
-                                    <tr>
-                                        {etfTableData.headers.map((h, idx) => (
-                                            <th key={idx} className={`p-3 whitespace-nowrap border-b border-slate-800 bg-[#0B0E14] ${idx===0 ? 'sticky left-0 z-20 border-r border-slate-800' : ''} ${h==='Total' ? 'text-white font-bold bg-[#1E2329]' : ''}`}>
-                                                {h} {h==='Date' && <ArrowDown size={10} className="inline ml-1"/>}
-                                            </th>
+                    </div>
+                    <div className="overflow-auto flex-1 custom-scrollbar">
+                        <table className="w-full text-[10px] text-left">
+                            <thead className="bg-[#0B0E14] sticky top-0 z-10 text-slate-400 uppercase font-bold">
+                                <tr>
+                                    {etfTable?.headers.map((h, i) => (
+                                        <th key={i} className={`p-3 border-b border-slate-800 ${h==="Total"?'bg-slate-800/50 text-white':''} ${i===0?'sticky left-0 bg-[#0B0E14]':''}`}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800">
+                                {etfTable?.rows.map((r:any, i:number) => (
+                                    <tr key={i} className={`hover:bg-white/5 ${r.isPending?'opacity-50 grayscale':''}`}>
+                                        {etfTable.headers.map((h, j) => (
+                                            <td key={j} className={`p-3 whitespace-nowrap ${h==="Date"?'sticky left-0 bg-[#151921] font-bold text-slate-300':''} ${h==="Total"?'bg-white/5 font-black text-white':''}`}>
+                                                {h==="Date" ? r[h].split(' ').slice(0,2).join(' ') : (r.isPending && h!=="Date" ? "CLOSED" : fmt(r[h]))}
+                                            </td>
                                         ))}
                                     </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800/50">
-                                    {etfTableData.rows.map((row: any, i: number) => (
-                                        <tr key={i} className="hover:bg-[#1E2329] transition-colors group">
-                                            {etfTableData.headers.map((h, colIdx) => {
-                                                const val = row[h];
-                                                if (colIdx === 0) return (
-                                                    <td key={colIdx} className="p-3 text-slate-300 font-mono font-bold sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 whitespace-nowrap flex items-center gap-2">
-                                                        <Calendar size={10} className="text-slate-600"/>
-                                                        {val.split(' ').slice(0,2).join(' ')}
-                                                    </td>
-                                                );
-                                                // Cột Total highlight
-                                                if (h === 'Total') return (
-                                                    <td key={colIdx} className="p-3 text-right whitespace-nowrap bg-[#1E2329]/30 font-bold border-r border-slate-800/50">
-                                                        {formatFlow(val)}
-                                                    </td>
-                                                );
-                                                return <td key={colIdx} className="p-3 text-right whitespace-nowrap">{formatFlow(val)}</td>;
-                                            })}
-                                        </tr>
-                                    ))}
-                                    {etfTableData.rows.length === 0 && <tr><td colSpan={10} className="p-10 text-center text-slate-500 italic">No Data</td></tr>}
-                                </tbody>
-                             </table>
-                        </div>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </div>
-        )}
-
-        {/* DEX TAB */}
-        {activeTab === 'DEX' && (
-            <div className="bg-[#151921] border border-slate-800 rounded-xl p-6">
-                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Layers className="text-emerald-500"/> DEX Volume Ranking</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-[#0B0E14] text-slate-400 uppercase text-xs font-bold"><tr><th className="p-4">#</th><th className="p-4">Protocol</th><th className="p-4 text-right">Volume 24h</th><th className="p-4 text-right">Change 1d</th></tr></thead>
-                        <tbody className="divide-y divide-slate-800">
-                            {dexs.map((d, i) => (
-                                <tr key={i} className="hover:bg-[#1E2329] transition-colors"><td className="p-4 text-slate-500 w-10">{i+1}</td><td className="p-4 font-bold text-white flex items-center gap-2"><img src={d.logo} className="w-6 h-6 rounded-full bg-slate-700" onError={(e)=>e.currentTarget.style.display='none'}/>{d.displayName}</td><td className="p-4 text-right text-blue-300 font-mono tracking-wide">${formatCompact(d.total24h)}</td><td className={`p-4 text-right font-bold ${d.change_1d >=0 ? 'text-emerald-400':'text-rose-400'}`}>{d.change_1d?.toFixed(2)}%</td></tr>
-                            ))}
-                        </tbody>
-                    </table>
                 </div>
             </div>
         )}
