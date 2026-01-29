@@ -2,20 +2,16 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// CẬP NHẬT URL THEO YÊU CẦU:
-// BTC & ETH dùng trang "all-data" để lấy full lịch sử.
-// SOL dùng trang "/sol/" (vì chưa có trang all-data).
 const URLS: Record<string, string> = {
   'BTC': 'https://farside.co.uk/bitcoin-etf-flow-all-data/',
   'ETH': 'https://farside.co.uk/ethereum-etf-flow-all-data/',
   'SOL': 'https://farside.co.uk/sol/'
 };
 
-// Danh sách mã quỹ để nhận diện Header (Mỏ neo)
 const KNOWN_TICKERS = [
-    'IBIT', 'FBTC', 'BITB', 'ARKB', 'BTCO', 'EZBC', 'BRRR', 'HODL', 'BTCW', 'GBTC', 'BTC', // BTC
-    'ETHA', 'FETH', 'ETHW', 'TETH', 'ETHV', 'QETH', 'EZET', 'ETHE', 'ETH', // ETH
-    'BSOL', 'VSOL', 'FSOL', 'TSOL', 'SOEZ', 'GSOL' // SOL
+    'IBIT', 'FBTC', 'BITB', 'ARKB', 'BTCO', 'EZBC', 'BRRR', 'HODL', 'BTCW', 'GBTC', 'BTC', 
+    'ETHA', 'FETH', 'ETHW', 'TETH', 'ETHV', 'QETH', 'EZET', 'ETHE', 'ETH', 
+    'BSOL', 'VSOL', 'FSOL', 'TSOL', 'SOEZ', 'GSOL'
 ];
 
 export async function GET(request: Request) {
@@ -35,7 +31,6 @@ export async function GET(request: Request) {
     
     const html = await response.text();
     
-    // Regex lấy dòng (tr) và ô (td/th) chấp nhận mọi ký tự xuống dòng
     const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
     const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
     
@@ -47,7 +42,6 @@ export async function GET(request: Request) {
     let headerMap: Record<number, string> = {}; 
     let headerRowIndex = -1;
     
-    // Quét 30 dòng đầu tiên để tìm Header chuẩn nhất
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
         const cellsRaw = rows[i].split(/<\/t[dh]>/);
         let tempMap: Record<number, string> = {};
@@ -57,7 +51,6 @@ export async function GET(request: Request) {
             const txt = cellRaw.replace(/<[^>]*>/g, '').trim();
             const upperTxt = txt.toUpperCase();
 
-            // Nếu ô chứa Ticker quỹ -> Lưu lại
             if (KNOWN_TICKERS.some(t => upperTxt === t || upperTxt.includes(t))) {
                 tempMap[index] = txt; 
                 tickerCount++;
@@ -68,7 +61,6 @@ export async function GET(request: Request) {
             }
         });
 
-        // Dòng nào chứa nhiều mã quỹ nhất (>=2) -> Chính là Header bảng dữ liệu
         if (tickerCount >= 2) {
             headerMap = tempMap;
             headerRowIndex = i;
@@ -76,8 +68,7 @@ export async function GET(request: Request) {
         }
     }
 
-    // FALLBACK CHO SOL (Vì bảng SOL hay bị lệch header/data)
-    // Cấu trúc quan sát được: Cột 1 (sau ngày) là GSOL, cột cuối là Total
+    // Fallback cho SOL
     if (type === 'SOL' && !headerMap[1]) {
          headerMap = {
              0: 'date',
@@ -86,10 +77,8 @@ export async function GET(request: Request) {
          };
     }
 
-    // FALLBACK CHO ETH (Nếu không tìm thấy header tự động)
-    // Trang all-data thường có cột: Date | ETHA | FETH ... | Total
+    // Fallback cho ETH
     if (type === 'ETH' && Object.keys(headerMap).length < 3) {
-        // Thứ tự phổ biến trên Farside cho ETH
         headerMap = {
             0: 'date',
             1: 'ETHA', 2: 'FETH', 3: 'ETHW', 4: 'TETH', 5: 'ETHV', 6: 'QETH', 7: 'EZET', 8: 'ETHE', 9: 'ETH',
@@ -97,8 +86,9 @@ export async function GET(request: Request) {
         };
     }
 
-    // 2. PARSE DỮ LIỆU
-    const recentRows = rows.slice(-90).reverse(); // Lấy 90 ngày gần nhất
+    // 2. PARSE DỮ LIỆU (LẤY TẤT CẢ)
+    // Sửa chỗ này: Bỏ .slice(-90), chỉ reverse để đưa ngày mới nhất lên đầu
+    const recentRows = rows.reverse(); 
     const data = [];
 
     const parseNum = (str: string) => {
@@ -115,31 +105,22 @@ export async function GET(request: Request) {
         while ((cellMatch = cellRegex.exec(rowHtml)) !== null) cells.push(cellMatch[1]);
 
         if (cells.length > 2) {
-            // Lấy ngày ở cột 0
             const dateStr = cells[0]?.replace(/<[^>]*>/g, '').trim();
             
-            // Regex chấp nhận "28 Jan 2026" hoặc "Jan 28 2026"
-            if (dateStr && dateStr.length > 5 && /\d/.test(dateStr)) {
+            // Validate ngày tháng (chứa số)
+            if (dateStr && dateStr.length > 4 && /\d/.test(dateStr)) {
                 let rowData: any = { date: dateStr };
                 let hasValue = false;
 
-                // Lấy dữ liệu các quỹ theo Header Map
                 Object.keys(headerMap).forEach((colIdx: any) => {
                     const key = headerMap[colIdx];
-                    // Chỉ lấy dữ liệu nếu ô đó tồn tại
                     if (key !== 'date' && cells[colIdx]) {
                         const val = parseNum(cells[colIdx]);
-                        // Nếu key là total, ta ưu tiên lấy, nếu là quỹ thì check !== 0
                         rowData[key] = val;
                         if (val !== 0) hasValue = true;
                     }
                 });
 
-                // XỬ LÝ CỘT TOTAL (Quan trọng)
-                // 1. Nếu map có total -> dùng nó.
-                // 2. Nếu map không có total hoặc giá trị = 0 -> Thử lấy cột cuối cùng.
-                // 3. Nếu vẫn = 0 -> Tự cộng tay các quỹ thành phần.
-                
                 if (!rowData.total) {
                     rowData.total = parseNum(cells[cells.length - 1]);
                 }
