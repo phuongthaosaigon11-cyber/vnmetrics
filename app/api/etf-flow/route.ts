@@ -2,13 +2,16 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
+// CẬP NHẬT URL THEO YÊU CẦU:
+// BTC & ETH dùng trang "all-data" để lấy full lịch sử.
+// SOL dùng trang "/sol/" (vì chưa có trang all-data).
 const URLS: Record<string, string> = {
   'BTC': 'https://farside.co.uk/bitcoin-etf-flow-all-data/',
-  'ETH': 'https://farside.co.uk/eth/',
+  'ETH': 'https://farside.co.uk/ethereum-etf-flow-all-data/',
   'SOL': 'https://farside.co.uk/sol/'
 };
 
-// Danh sách mã quỹ để nhận diện Header
+// Danh sách mã quỹ để nhận diện Header (Mỏ neo)
 const KNOWN_TICKERS = [
     'IBIT', 'FBTC', 'BITB', 'ARKB', 'BTCO', 'EZBC', 'BRRR', 'HODL', 'BTCW', 'GBTC', 'BTC', // BTC
     'ETHA', 'FETH', 'ETHW', 'TETH', 'ETHV', 'QETH', 'EZET', 'ETHE', 'ETH', // ETH
@@ -44,8 +47,8 @@ export async function GET(request: Request) {
     let headerMap: Record<number, string> = {}; 
     let headerRowIndex = -1;
     
-    // Quét 20 dòng đầu tiên để tìm Header chuẩn nhất
-    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    // Quét 30 dòng đầu tiên để tìm Header chuẩn nhất
+    for (let i = 0; i < Math.min(rows.length, 30); i++) {
         const cellsRaw = rows[i].split(/<\/t[dh]>/);
         let tempMap: Record<number, string> = {};
         let tickerCount = 0;
@@ -54,8 +57,9 @@ export async function GET(request: Request) {
             const txt = cellRaw.replace(/<[^>]*>/g, '').trim();
             const upperTxt = txt.toUpperCase();
 
+            // Nếu ô chứa Ticker quỹ -> Lưu lại
             if (KNOWN_TICKERS.some(t => upperTxt === t || upperTxt.includes(t))) {
-                tempMap[index] = txt; // Lưu tên quỹ (VD: IBIT, ETHA)
+                tempMap[index] = txt; 
                 tickerCount++;
             } else if (upperTxt.includes('DATE')) {
                 tempMap[index] = 'date';
@@ -64,7 +68,7 @@ export async function GET(request: Request) {
             }
         });
 
-        // Dòng nào chứa nhiều mã quỹ nhất -> Chính là Header
+        // Dòng nào chứa nhiều mã quỹ nhất (>=2) -> Chính là Header bảng dữ liệu
         if (tickerCount >= 2) {
             headerMap = tempMap;
             headerRowIndex = i;
@@ -72,12 +76,9 @@ export async function GET(request: Request) {
         }
     }
 
-    // Fallback cho SOL: Nếu header bị lệch (như trong text bạn gửi), ta gán cứng một số quy luật
-    // Dựa trên dữ liệu bạn gửi: Cột đầu (sau ngày) thường là quỹ lớn nhất (GSOL/IBIT)
+    // FALLBACK CHO SOL (Vì bảng SOL hay bị lệch header/data)
+    // Cấu trúc quan sát được: Cột 1 (sau ngày) là GSOL, cột cuối là Total
     if (type === 'SOL' && !headerMap[1]) {
-         // Nếu không tìm thấy header, ta giả định cột 1 là GSOL (vì số liệu Seed nó to nhất: 222.9)
-         // Thứ tự này dựa trên quan sát dữ liệu bạn cung cấp
-         // Date | GSOL | BSOL | VSOL | FSOL | TSOL | SOEZ | Total
          headerMap = {
              0: 'date',
              1: 'GSOL', 2: 'BSOL', 3: 'VSOL', 4: 'FSOL', 5: 'TSOL', 6: 'SOEZ',
@@ -85,8 +86,10 @@ export async function GET(request: Request) {
          };
     }
 
-    // Fallback cho ETH nếu không tìm thấy
+    // FALLBACK CHO ETH (Nếu không tìm thấy header tự động)
+    // Trang all-data thường có cột: Date | ETHA | FETH ... | Total
     if (type === 'ETH' && Object.keys(headerMap).length < 3) {
+        // Thứ tự phổ biến trên Farside cho ETH
         headerMap = {
             0: 'date',
             1: 'ETHA', 2: 'FETH', 3: 'ETHW', 4: 'TETH', 5: 'ETHV', 6: 'QETH', 7: 'EZET', 8: 'ETHE', 9: 'ETH',
@@ -95,13 +98,13 @@ export async function GET(request: Request) {
     }
 
     // 2. PARSE DỮ LIỆU
-    const recentRows = rows.slice(-90).reverse();
+    const recentRows = rows.slice(-90).reverse(); // Lấy 90 ngày gần nhất
     const data = [];
 
     const parseNum = (str: string) => {
         if (!str) return 0;
         let clean = str.replace(/<[^>]*>/g, '').trim();
-        if (!clean || clean === '-' || clean === '0.0') return 0; // 0.0 coi như 0
+        if (!clean || clean === '-' || clean === '0.0') return 0;
         if (clean.includes('(')) clean = '-' + clean.replace(/[()]/g, '');
         return parseFloat(clean.replace(/,/g, '')) || 0;
     };
@@ -111,32 +114,44 @@ export async function GET(request: Request) {
         let cellMatch;
         while ((cellMatch = cellRegex.exec(rowHtml)) !== null) cells.push(cellMatch[1]);
 
-        // Cần ít nhất 2 cột (Ngày + Total)
         if (cells.length > 2) {
             // Lấy ngày ở cột 0
             const dateStr = cells[0]?.replace(/<[^>]*>/g, '').trim();
             
-            // Regex chấp nhận "28 Jan 2026" (Ngày/Tháng/Năm)
+            // Regex chấp nhận "28 Jan 2026" hoặc "Jan 28 2026"
             if (dateStr && dateStr.length > 5 && /\d/.test(dateStr)) {
                 let rowData: any = { date: dateStr };
                 let hasValue = false;
 
-                // Lấy dữ liệu theo Header Map đã định nghĩa ở trên
+                // Lấy dữ liệu các quỹ theo Header Map
                 Object.keys(headerMap).forEach((colIdx: any) => {
                     const key = headerMap[colIdx];
+                    // Chỉ lấy dữ liệu nếu ô đó tồn tại
                     if (key !== 'date' && cells[colIdx]) {
                         const val = parseNum(cells[colIdx]);
+                        // Nếu key là total, ta ưu tiên lấy, nếu là quỹ thì check !== 0
                         rowData[key] = val;
                         if (val !== 0) hasValue = true;
                     }
                 });
 
-                // Nếu Total chưa có trong map (do header thiếu), lấy cột cuối cùng
-                if (rowData.total === undefined || rowData.total === 0) {
+                // XỬ LÝ CỘT TOTAL (Quan trọng)
+                // 1. Nếu map có total -> dùng nó.
+                // 2. Nếu map không có total hoặc giá trị = 0 -> Thử lấy cột cuối cùng.
+                // 3. Nếu vẫn = 0 -> Tự cộng tay các quỹ thành phần.
+                
+                if (!rowData.total) {
                     rowData.total = parseNum(cells[cells.length - 1]);
                 }
 
-                // Chỉ lấy dòng có dữ liệu (tránh dòng trống/header lặp lại)
+                if (!rowData.total && hasValue) {
+                     let sum = 0;
+                     Object.keys(rowData).forEach(k => {
+                         if (k !== 'date' && k !== 'total') sum += rowData[k];
+                     });
+                     if (sum !== 0) rowData.total = parseFloat(sum.toFixed(1));
+                }
+
                 if (hasValue || rowData.total !== 0) {
                     data.push(rowData);
                 }
