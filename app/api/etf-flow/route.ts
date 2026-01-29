@@ -8,18 +8,19 @@ export async function GET() {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       },
-      next: { revalidate: 300 } // Cache 5 phút
+      next: { revalidate: 300 }
     });
     
     const html = await response.text();
-    const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gs;
-    const cellRegex = /<td[^>]*>(.*?)<\/td>/gs;
+    
+    // SỬA LỖI REGEX: Dùng [\s\S] thay cho . và bỏ cờ 's' để tương thích ES cũ
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+    const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
     
     let rows = [];
     let match;
     while ((match = rowRegex.exec(html)) !== null) rows.push(match[1]);
 
-    // Logic thông minh: Tìm cột Header
     let dateCol = 0, ibitCol = 1, fbtcCol = 2, totalCol = -1;
     for (let i = 0; i < Math.min(rows.length, 10); i++) {
         const headerCells = rows[i].split(/<\/t[dh]>/);
@@ -32,7 +33,6 @@ export async function GET() {
         });
     }
 
-    // Parse dữ liệu (Lấy 90 ngày gần nhất)
     const recentRows = rows.slice(-90).reverse();
     const data = [];
 
@@ -51,11 +51,10 @@ export async function GET() {
 
         if (cells.length > 3) {
             const dateStr = cells[dateCol]?.replace(/<[^>]*>/g, '').trim();
-            // Regex chấp nhận "28 Jan 2026"
             if (dateStr && dateStr.length > 5 && dateStr.match(/\d/)) {
                 const actualTotalCol = totalCol !== -1 ? totalCol : cells.length - 1;
                 data.push({
-                    date: dateStr, // Giữ nguyên "28 Jan 2026" để client xử lý
+                    date: dateStr,
                     ibit: parseNum(cells[ibitCol]),
                     fbtc: parseNum(cells[fbtcCol]),
                     total: parseNum(cells[actualTotalCol])
