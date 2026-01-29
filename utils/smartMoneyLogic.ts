@@ -1,4 +1,5 @@
 // FILE: utils/smartMoneyLogic.ts
+
 const normalizeDate = (input: any): string => {
   try {
     const d = new Date(input);
@@ -10,31 +11,31 @@ const normalizeDate = (input: any): string => {
   } catch (e) { return ""; }
 };
 
-export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[], fundingData: any[]) => {
+// Hàm xử lý dữ liệu Farside + Binance + CoinGecko
+export const alignMarketData = (priceData: any[], farsideData: any[], oiData: any[], fundingData: any[]) => {
   if (!priceData || !priceData.length) return [];
 
-  // 1. Map ETF Data
+  // 1. Map ETF Data (Farside trả về Millions USD -> cần nhân 1,000,000)
   const etfMap = new Map<string, number>();
-  if (etfRows && Array.isArray(etfRows)) {
-    etfRows.forEach((row: any) => {
-      if (row?.Date) {
-         const dKey = normalizeDate(row.Date);
-         const val = parseFloat(String(row.Total).replace(/,/g, ''));
-         if (dKey && !isNaN(val)) etfMap.set(dKey, val);
+  if (farsideData && Array.isArray(farsideData)) {
+    farsideData.forEach((row: any) => {
+      if (row?.date) {
+         const dKey = normalizeDate(row.date); // "28 Jan 2026" -> "2026-01-28"
+         const val = (row.total || 0) * 1000000; // Convert Mil to Raw
+         if (dKey) etfMap.set(dKey, val);
       }
     });
   }
 
-  // 2. Map OI Data (Binance)
+  // 2. Map OI Data
   const oiMap = new Map<string, number>();
   if (Array.isArray(oiData)) {
     oiData.forEach((d: any) => {
-        // Binance trả về timestamp ms
         oiMap.set(normalizeDate(d.timestamp), parseFloat(d.sumOpenInterestValue || d.sumOpenInterest));
     });
   }
 
-  // 3. Map Funding Data (Binance - Average Daily)
+  // 3. Map Funding Data
   const fundMap = new Map<string, number>();
   if (Array.isArray(fundingData)) {
       const tempGroup: Record<string, number[]> = {};
@@ -49,9 +50,9 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
       });
   }
 
-  // 4. Merge Data (Dùng Price CoinGecko làm trục chính)
+  // 4. Merge All
   return priceData.map((p) => {
-    const dateObj = new Date(p[0]); // [timestamp, price]
+    const dateObj = new Date(p[0]);
     const dateKey = normalizeDate(dateObj); 
     
     const displayDate = dateObj.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }); 
@@ -61,7 +62,6 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
     const etfFlow = hasData ? etfMap.get(dateKey)! : 0;
     const isMarketClosed = !hasData;
 
-    // Fallback: Nếu không có data OI (do lỗi API), dùng 0
     const oi = oiMap.get(dateKey) || 0;
     const funding = fundMap.get(dateKey) || 0;
 
@@ -70,7 +70,7 @@ export const alignMarketData = (priceData: any[], etfRows: any[], oiData: any[],
       fullDate: fullDate,
       timestamp: dateObj.getTime(),
       price: p[1],
-      etfFlow,
+      etfFlow, // Đã chuẩn hóa về USD
       oi,       
       funding, 
       isMarketClosed
@@ -82,21 +82,20 @@ export const analyzeSmartMoney = (lastItem: any) => {
   if (!lastItem) return null;
   
   if (lastItem.isMarketClosed) return {
-    label: 'THỊ TRƯỜNG ĐÓNG CỬA',
-    desc: `Dữ liệu ETF chưa cập nhật.`,
+    label: 'ĐANG CẬP NHẬT',
+    desc: `Dữ liệu ETF hôm nay chưa chốt sổ (thường có vào sáng mai).`,
     color: 'text-slate-400', bg: 'bg-slate-800/50 border-slate-700', iconColor: 'bg-slate-500'
   };
   
-  // Logic phân tích
   if (lastItem.etfFlow > 0) return {
-    label: 'DÒNG TIỀN MUA RÒNG',
-    desc: 'Cá mập ETF đang gom hàng (Net Inflow Dương).',
+    label: 'DÒNG TIỀN DƯƠNG (INFLOW)',
+    desc: `Cá mập ETF đang mua ròng (+$${new Intl.NumberFormat('en-US', {notation: "compact"}).format(lastItem.etfFlow)}).`,
     color: 'text-emerald-400', bg: 'bg-emerald-950/40 border-emerald-500/50', iconColor: 'bg-emerald-500'
   };
 
   return {
-    label: 'ÁP LỰC BÁN',
-    desc: 'Dòng tiền ETF đang rút ra (Net Outflow Âm).',
+    label: 'ÁP LỰC BÁN (OUTFLOW)',
+    desc: `Dòng tiền đang rút ra ($${new Intl.NumberFormat('en-US', {notation: "compact"}).format(lastItem.etfFlow)}).`,
     color: 'text-rose-400', bg: 'bg-rose-950/40 border-rose-500/50', iconColor: 'bg-rose-500'
   };
 };
