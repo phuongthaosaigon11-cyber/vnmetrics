@@ -2,9 +2,8 @@ name: Daily Data Update
 
 on:
   schedule:
-    # Chạy vào lúc 00:00 UTC hàng ngày (tức 7:00 sáng Việt Nam)
-    - cron: '0 0 * * *'
-  workflow_dispatch: # Cho phép bấm nút chạy tay trên web GitHub
+    - cron: '0 0 * * *' # 7:00 sáng VN hàng ngày
+  workflow_dispatch:
 
 jobs:
   update-data:
@@ -23,20 +22,19 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests pandas
+          pip install -r requirements.txt
 
       - name: Run Fetch Scripts
-        # Chạy script lấy dữ liệu Dune/Holdings và lưu vào folder public/
-        # Lưu ý: Bạn cần đảm bảo file python của bạn xuất file vào đúng folder public/
+        env:
+          # Nạp Key từ "Két sắt" vào môi trường chạy
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
         run: |
-          python scripts/fetch-dune.py || echo "Dune script failed"
-          # Nếu có script khác cho holdings thì thêm vào đây
+          python scripts/fetch-dune.py
 
       - name: Commit and Push changes
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
           git add public/*.json
-          # Chỉ commit nếu có thay đổi
-          git commit -m "Auto-update data daily" || exit 0
+          git commit -m "Auto-update Dune data" || exit 0
           git push
