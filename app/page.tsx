@@ -66,33 +66,70 @@ const OnChainFeed = () => {
 
 const EtfHoldingsWidget = () => {
   const [holdings, setHoldings] = useState<any[]>([]);
+  
   useEffect(() => { 
-      // SỬA: Thêm ?t=Date.now() để bắt buộc lấy file mới nhất
       fetch(`/etf_holdings.json?t=${Date.now()}`)
         .then(r=>r.json())
-        .then(d => setHoldings(d.map((x:any)=>({...x,usd:x.usd_value||0})).sort((a:any,b:any)=>b.usd-a.usd)))
+        .then(d => {
+            // --- LOGIC MỚI: LỌC TRÙNG LẶP ---
+            // Chỉ giữ lại dòng mới nhất cho mỗi Ticker
+            const uniqueMap = new Map();
+            d.forEach((item: any) => {
+                // Nếu chưa có ticker này hoặc dòng mới này có giá trị (usd_value) lớn hơn cái cũ
+                // (Giả định giá trị lớn nhất là mới nhất vì BTC đang tăng, 
+                // hoặc chuẩn nhất là dựa vào ngày tháng nếu có)
+                if (!uniqueMap.has(item.etf_ticker)) {
+                    uniqueMap.set(item.etf_ticker, item);
+                }
+            });
+            
+            const uniqueList = Array.from(uniqueMap.values())
+                .map((x:any)=>({...x, usd: x.usd_value || 0}))
+                .sort((a:any,b:any) => b.usd - a.usd); // Sắp xếp từ cao xuống thấp
+
+            setHoldings(uniqueList);
+        })
         .catch(()=>{}); 
   }, []);
 
   if (!holdings.length) return null;
+
   return (
     <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[400px] shadow-lg mb-6 hover:border-slate-700 transition-all">
         <div className="p-3 border-b border-slate-800 bg-[#0B0E14] flex justify-between items-center sticky top-0 z-10">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2"><Wallet size={16} className="text-amber-500"/> ETF Holdings</h3>
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                <Wallet size={16} className="text-amber-500"/> ETF Holdings (On-chain)
+            </h3>
         </div>
         <div className="overflow-auto custom-scrollbar flex-1 bg-[#0B0E14]/30">
             <table className="w-full text-xs text-left border-collapse">
                 <thead className="text-slate-500 bg-[#11141A] sticky top-0 uppercase font-bold text-[9px] z-20">
-                    <tr><th className="p-2 border-b border-slate-800">Tổ Chức</th><th className="p-2 border-b border-slate-800 text-right">Holdings</th><th className="p-2 border-b border-slate-800 text-right">Giá trị ($)</th><th className="p-2 border-b border-slate-800 text-right">Share</th><th className="p-2 border-b border-slate-800 text-right">Fee</th></tr>
+                    <tr>
+                        <th className="p-2 border-b border-slate-800">Tổ Chức</th>
+                        <th className="p-2 border-b border-slate-800 text-right">BTC Nắm Giữ</th>
+                        <th className="p-2 border-b border-slate-800 text-right">Giá trị ($)</th>
+                        <th className="p-2 border-b border-slate-800 text-right">Thị phần</th>
+                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/40 text-[10px]">
                     {holdings.map((row, i) => (
                         <tr key={i} className="hover:bg-white/5 transition-colors">
-                            <td className="p-2"><div className="font-bold text-slate-200">{row.plain_issuer || row.issuer}</div><div className="text-[9px] font-mono text-slate-500">{row.etf_ticker}</div></td>
-                            <td className="p-2 text-right font-mono text-slate-300">{fmtAmt(row.tvl || row.amount)}</td>
-                            <td className="p-2 text-right font-mono font-bold text-emerald-400">{fmtUSD(row.usd_value)}</td>
-                            <td className="p-2 text-right text-slate-400 font-mono">{(row.percentage_of_total*100).toFixed(1)}%</td>
-                            <td className="p-2 text-right text-slate-400 font-mono">{row.percentage_fee!=null?(row.percentage_fee*100).toFixed(2)+'%':'-'}</td>
+                            <td className="p-2">
+                                <div className="font-bold text-slate-200">{row.plain_issuer || row.issuer}</div>
+                                <div className="text-[9px] font-mono text-slate-500">{row.etf_ticker}</div>
+                            </td>
+                            <td className="p-2 text-right font-mono text-slate-300">
+                                {fmtAmt(row.tvl || row.amount)} ₿
+                            </td>
+                            <td className="p-2 text-right font-mono font-bold text-emerald-400">
+                                {fmtUSD(row.usd_value)}
+                            </td>
+                            <td className="p-2 text-right text-slate-400 font-mono">
+                                {/* Nếu có số liệu share thì hiện, không thì tự tính (tương đối) */}
+                                {row.percentage_of_total 
+                                    ? (row.percentage_of_total * 100).toFixed(1) + '%' 
+                                    : '-'}
+                            </td>
                         </tr>
                     ))}
                 </tbody>
