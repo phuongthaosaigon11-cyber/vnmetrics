@@ -6,6 +6,7 @@ import { Zap, Table, Radio, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-
 import { ComposedChart, Line, ResponsiveContainer } from 'recharts';
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
 import AlphaDashboard from '../components/AlphaDashboard';
+import MetalDashboard from '../components/GoldDashboard';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const COINGECKO_TOP10 = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,binancecoin,ripple,cardano,dogecoin,tron,polkadot,chainlink&order=market_cap_desc&per_page=10&page=1&sparkline=true";
@@ -18,7 +19,6 @@ const fmtFlow = (val:any) => {
     return <span className={`font-mono font-bold ${num>0?'text-emerald-400':'text-rose-400'}`}>{num>0?'+':''}{num.toLocaleString()}</span>;
 };
 
-// ... OnChainFeed Component (Giữ nguyên) ...
 const OnChainFeed = () => {
   const [txs, setTxs] = useState<any[]>([]);
   useEffect(() => { 
@@ -57,7 +57,6 @@ const OnChainFeed = () => {
   );
 };
 
-// ... EtfHoldingsWidget Component (Giữ nguyên logic đã sửa trước đó) ...
 const EtfHoldingsWidget = () => {
   const [holdings, setHoldings] = useState<any[]>([]);
   useEffect(() => { 
@@ -112,7 +111,6 @@ export default function VNMetricsDashboard() {
             fetch('/api/etf-flow?type=BTC').then(r => r.json()).catch(()=>[]),
             fetch('/api/etf-flow?type=ETH').then(r => r.json()).catch(()=>[]),
             fetch('/api/etf-flow?type=SOL').then(r => r.json()).catch(()=>[]),
-            // GỌI API MỚI: Dữ liệu thị trường (Giá, OI, Funding) từ server nội bộ
             fetch('/api/market-data').then(r => r.json()).catch(()=>({prices:[], oi:[], funding:[]}))
         ]);
 
@@ -122,8 +120,6 @@ export default function VNMetricsDashboard() {
             ETH: Array.isArray(ethFlow) ? ethFlow : [],
             SOL: Array.isArray(solFlow) ? solFlow : []
         });
-        
-        // Cập nhật state với dữ liệu chuẩn từ Binance API
         setMarketMetrics({ 
             prices: marketDataRes.prices || [], 
             oi: marketDataRes.oi || [], 
@@ -142,7 +138,6 @@ export default function VNMetricsDashboard() {
     const sample = rows[0];
     const fundTickers = Object.keys(sample).filter(k => k !== 'date' && k !== 'total');
     const headers = ["Ngày", ...fundTickers, "TỔNG ($M)"];
-    
     return { headers, rows, fundTickers };
   }, [allEtfData, etfTicker]);
 
@@ -163,22 +158,30 @@ export default function VNMetricsDashboard() {
       </header>
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
         {activeTab === 'MARKET' && (
-             <div className="space-y-6">
-                <AlphaDashboard />
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {loading && <div className="col-span-4 text-center py-20 text-slate-500">Đang tải dữ liệu...</div>}
-                    {cryptos.map(c => {
-                        const isUp = (c.price_change_percentage_24h || 0) >= 0;
-                        const sparklineData = c.sparkline_in_7d?.price?.map((p:number, i:number) => ({i, p})) || [];
-                        return (
-                        <div key={c.id} className="bg-[#151921] border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-blue-500/50 transition-all group h-[140px]">
-                            <div className="flex justify-between items-start">
-                                <div className="flex items-center gap-3"><img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/><div><div className="font-bold text-white text-sm">{c.name}</div><div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div></div></div>
-                                <div className="text-right"><div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div><div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>{isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%</div></div>
-                            </div>
-                            <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={sparklineData}><Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} /></ComposedChart></ResponsiveContainer></div>
+             <div className="space-y-6 animate-in fade-in">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-8">
+                        <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Top Crypto Assets</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {loading && <div className="col-span-2 text-center py-10 text-slate-500">Đang tải dữ liệu...</div>}
+                            {cryptos.map(c => {
+                                const isUp = (c.price_change_percentage_24h || 0) >= 0;
+                                const sparklineData = c.sparkline_in_7d?.price?.map((p:number, i:number) => ({i, p})) || [];
+                                return (
+                                <div key={c.id} className="bg-[#151921] border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-blue-500/50 transition-all group h-[140px]">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-center gap-3"><img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/><div><div className="font-bold text-white text-sm">{c.name}</div><div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div></div></div>
+                                        <div className="text-right"><div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div><div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>{isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%</div></div>
+                                    </div>
+                                    <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={sparklineData}><Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} /></ComposedChart></ResponsiveContainer></div>
+                                </div>
+                            )})}
                         </div>
-                    )})}
+                    </div>
+                    <div className="lg:col-span-4 space-y-6">
+                        <AlphaDashboard />
+                        <MetalDashboard />
+                    </div>
                 </div>
              </div>
         )}
@@ -194,10 +197,7 @@ export default function VNMetricsDashboard() {
                         <div className="flex items-center gap-2 font-bold text-white text-sm"><Table size={16}/> Lịch sử Dòng tiền ($M)</div>
                         <div className="flex bg-black p-1 rounded border border-slate-800 gap-1">
                             {['BTC','ETH', 'SOL'].map(t => (
-                                <button key={t} onClick={()=>setEtfTicker(t as any)} 
-                                    className={`px-3 py-0.5 text-[10px] font-bold rounded transition-all ${etfTicker===t?'bg-blue-600 text-white':'text-slate-500 hover:text-white'}`}>
-                                    {t}
-                                </button>
+                                <button key={t} onClick={()=>setEtfTicker(t as any)} className={`px-3 py-0.5 text-[10px] font-bold rounded transition-all ${etfTicker===t?'bg-blue-600 text-white':'text-slate-500 hover:text-white'}`}>{t}</button>
                             ))}
                         </div>
                     </div>
@@ -215,24 +215,16 @@ export default function VNMetricsDashboard() {
                             <tbody className="divide-y divide-slate-800/50">
                                 {etfTable?.rows.map((r:any, i:number) => (
                                     <tr key={i} className="hover:bg-[#1E2329] transition-colors group">
-                                        <td className="p-3 whitespace-nowrap border-b border-slate-800/50 sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 font-bold text-slate-300">
-                                            {r.date}
-                                        </td>
+                                        <td className="p-3 whitespace-nowrap border-b border-slate-800/50 sticky left-0 bg-[#151921] group-hover:bg-[#1E2329] border-r border-slate-800 font-bold text-slate-300">{r.date}</td>
                                         {etfTable.fundTickers.map((ticker:string) => (
-                                            <td key={ticker} className="p-3 text-right border-b border-slate-800/50 font-mono text-slate-400">
-                                                {r[ticker] ? fmtFlow(r[ticker]) : '-'}
-                                            </td>
+                                            <td key={ticker} className="p-3 text-right border-b border-slate-800/50 font-mono text-slate-400">{r[ticker] ? fmtFlow(r[ticker]) : '-'}</td>
                                         ))}
-                                        <td className="p-3 text-right border-b border-slate-800/50 bg-[#1E2329]/50 font-black border-r border-slate-800/50">
-                                            {fmtFlow(r.total)}
-                                        </td>
+                                        <td className="p-3 text-right border-b border-slate-800/50 bg-[#1E2329]/50 font-black border-r border-slate-800/50">{fmtFlow(r.total)}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        {!etfTable && <div className="p-10 text-center text-slate-500">
-                            {loading ? 'Đang tải dữ liệu...' : 'Chưa có dữ liệu cho mục này.'}
-                        </div>}
+                        {!etfTable && <div className="p-10 text-center text-slate-500">{loading ? 'Đang tải dữ liệu...' : 'Chưa có dữ liệu cho mục này.'}</div>}
                     </div>
                 </div>
             </div>
