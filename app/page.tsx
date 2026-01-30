@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Inter } from 'next/font/google';
-import { Zap, Table, Radio, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Zap, Table, Radio, Wallet, ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
 import { ComposedChart, Line, ResponsiveContainer } from 'recharts';
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
-import AlphaDashboard from '../components/AlphaDashboard';
 import MetalDashboard from '../components/GoldDashboard';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -19,11 +18,10 @@ const fmtFlow = (val:any) => {
     return <span className={`font-mono font-bold ${num>0?'text-emerald-400':'text-rose-400'}`}>{num>0?'+':''}{num.toLocaleString()}</span>;
 };
 
+// ... OnChainFeed & EtfHoldingsWidget giữ nguyên cho gọn (đã ổn định) ...
 const OnChainFeed = () => {
   const [txs, setTxs] = useState<any[]>([]);
-  useEffect(() => { 
-      fetch(`/onchain_flows.json?t=${Date.now()}`).then(r=>r.json()).then(setTxs).catch(()=>{}); 
-  }, []);
+  useEffect(() => { fetch(`/onchain_flows.json?t=${Date.now()}`).then(r=>r.json()).then(setTxs).catch(()=>{}); }, []);
   if (!txs.length) return null;
   return (
     <div className="bg-[#151921] border border-slate-800 rounded-xl flex flex-col h-[400px] shadow-lg mb-6 hover:border-slate-700 transition-all">
@@ -95,7 +93,7 @@ const EtfHoldingsWidget = () => {
 };
 
 export default function VNMetricsDashboard() {
-  const [activeTab, setActiveTab] = useState<'MARKET' | 'ETF'>('MARKET');
+  const [activeTab, setActiveTab] = useState<'MARKET' | 'ETF' | 'METALS'>('MARKET');
   const [cryptos, setCryptos] = useState<any[]>([]);
   const [allEtfData, setAllEtfData] = useState<any>({ BTC: [], ETH: [], SOL: [] });
   const [marketMetrics, setMarketMetrics] = useState<any>({ prices: [], oi: [], funding: [] });
@@ -137,8 +135,7 @@ export default function VNMetricsDashboard() {
     if (!rows.length) return null;
     const sample = rows[0];
     const fundTickers = Object.keys(sample).filter(k => k !== 'date' && k !== 'total');
-    const headers = ["Ngày", ...fundTickers, "TỔNG ($M)"];
-    return { headers, rows, fundTickers };
+    return { headers: ["Ngày", ...fundTickers, "TỔNG ($M)"], rows, fundTickers };
   }, [allEtfData, etfTicker]);
 
   return (
@@ -150,43 +147,38 @@ export default function VNMetricsDashboard() {
                 <h1 className="text-lg font-bold tracking-tight">VN<span className="text-blue-500">Metrics</span></h1>
             </div>
             <nav className="flex bg-[#151921] p-1 rounded-lg border border-slate-800 text-xs font-bold">
-                {[{id:'MARKET',l:'Thị trường'},{id:'ETF',l:'Smart Money & ETF'}].map(t => (
+                {[{id:'MARKET',l:'Crypto Market'},{id:'ETF',l:'Smart Money & ETF'}, {id:'METALS', l:'Kim loại (Vàng/Bạc)'}].map(t => (
                     <button key={t.id} onClick={()=>setActiveTab(t.id as any)} className={`px-4 py-1.5 rounded-md transition-all ${activeTab===t.id?'bg-[#252A33] text-white shadow ring-1 ring-slate-600':'text-slate-400 hover:text-white hover:bg-[#1E2329]'}`}>{t.l}</button>
                 ))}
             </nav>
         </div>
       </header>
       <main className="max-w-[1600px] mx-auto p-4 md:p-6 pb-20">
+        
+        {/* TAB 1: CRYPTO MARKET */}
         {activeTab === 'MARKET' && (
-             <div className="space-y-6 animate-in fade-in">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-8">
-                        <h2 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider">Top Crypto Assets</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {loading && <div className="col-span-2 text-center py-10 text-slate-500">Đang tải dữ liệu...</div>}
-                            {cryptos.map(c => {
-                                const isUp = (c.price_change_percentage_24h || 0) >= 0;
-                                const sparklineData = c.sparkline_in_7d?.price?.map((p:number, i:number) => ({i, p})) || [];
-                                return (
-                                <div key={c.id} className="bg-[#151921] border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-blue-500/50 transition-all group h-[140px]">
-                                    <div className="flex justify-between items-start">
-                                        <div className="flex items-center gap-3"><img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/><div><div className="font-bold text-white text-sm">{c.name}</div><div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div></div></div>
-                                        <div className="text-right"><div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div><div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>{isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%</div></div>
-                                    </div>
-                                    <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={sparklineData}><Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} /></ComposedChart></ResponsiveContainer></div>
-                                </div>
-                            )})}
+             <div className="animate-in fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {loading && <div className="col-span-4 text-center py-20 text-slate-500">Đang tải dữ liệu...</div>}
+                    {cryptos.map(c => {
+                        const isUp = (c.price_change_percentage_24h || 0) >= 0;
+                        const sparklineData = c.sparkline_in_7d?.price?.map((p:number, i:number) => ({i, p})) || [];
+                        return (
+                        <div key={c.id} className="bg-[#151921] border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-blue-500/50 transition-all group h-[140px]">
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3"><img src={c.image} className="w-10 h-10 rounded-full group-hover:scale-110 transition-transform"/><div><div className="font-bold text-white text-sm">{c.name}</div><div className="text-[10px] text-slate-500 font-mono">{c.symbol.toUpperCase()}</div></div></div>
+                                <div className="text-right"><div className="font-mono font-bold text-slate-200">${c.current_price.toLocaleString()}</div><div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp?'text-emerald-400':'text-rose-400'}`}>{isUp?<ArrowUpRight size={12}/>:<ArrowDownRight size={12}/>}{Math.abs(c.price_change_percentage_24h||0).toFixed(2)}%</div></div>
+                            </div>
+                            <div className="h-[40px] w-full mt-2 opacity-50 group-hover:opacity-100 transition-opacity"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={sparklineData}><Line type="monotone" dataKey="p" stroke={isUp ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} /></ComposedChart></ResponsiveContainer></div>
                         </div>
-                    </div>
-                    <div className="lg:col-span-4 space-y-6">
-                        <AlphaDashboard />
-                        <MetalDashboard />
-                    </div>
+                    )})}
                 </div>
              </div>
         )}
+
+        {/* TAB 2: ETF & SMART MONEY */}
         {activeTab === 'ETF' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-2">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in">
                 <div className="lg:col-span-7 space-y-6">
                     <SmartMoneyDashboard rawData={marketMetrics} etfData={allEtfData} />
                     <OnChainFeed />
@@ -206,9 +198,7 @@ export default function VNMetricsDashboard() {
                             <thead className="bg-[#11141A] sticky top-0 z-20 text-slate-400 uppercase font-bold shadow-md">
                                 <tr>
                                     <th className="p-3 border-b border-slate-800 sticky left-0 bg-[#11141A] z-30 border-r border-slate-800">Ngày</th>
-                                    {etfTable?.fundTickers.map((ticker:string) => (
-                                        <th key={ticker} className="p-3 border-b border-slate-800 text-right">{ticker}</th>
-                                    ))}
+                                    {etfTable?.fundTickers.map((ticker:string) => (<th key={ticker} className="p-3 border-b border-slate-800 text-right">{ticker}</th>))}
                                     <th className="p-3 border-b border-slate-800 text-right text-white bg-[#1E2329]">TỔNG</th>
                                 </tr>
                             </thead>
@@ -224,11 +214,16 @@ export default function VNMetricsDashboard() {
                                 ))}
                             </tbody>
                         </table>
-                        {!etfTable && <div className="p-10 text-center text-slate-500">{loading ? 'Đang tải dữ liệu...' : 'Chưa có dữ liệu cho mục này.'}</div>}
                     </div>
                 </div>
             </div>
         )}
+
+        {/* TAB 3: KIM LOẠI (METALS) */}
+        {activeTab === 'METALS' && (
+            <MetalDashboard />
+        )}
+
       </main>
     </div>
   );
