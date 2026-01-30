@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-// IMPORT FONT MỚI NHƯ YÊU CẦU (Manrope cho chữ, JetBrains Mono cho số)
+// Đã bổ sung useCallback vào dòng này
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Manrope, JetBrains_Mono } from 'next/font/google';
 import { 
   Zap, Globe, Repeat, Lock, ArrowUpRight, ArrowDownRight, ServerCrash, 
@@ -12,16 +12,13 @@ import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Respons
 import SmartMoneyDashboard from '../components/SmartMoneyDashboard';
 import MetalDashboard from '../components/GoldDashboard';
 
-// CẤU HÌNH FONT
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 const EXCHANGE_RATE = 25450; 
 
-// --- FORMATTERS (Đã sửa lỗi hiển thị số dài) ---
 const fmtUSD = (val: any) => {
     const num = typeof val === 'string' ? parseFloat(val.replace(/,/g,'')) : val;
     if (!num || isNaN(num)) return '-';
-    // Format gọn: 7.9M, 1B...
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 }).format(num);
 };
 
@@ -31,7 +28,27 @@ const fmtAmt = (val: any) => {
     return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
 };
 
-// --- COMPONENT: ON-CHAIN FLOWS (SỬA LỖI HIỂN THỊ & LINK) ---
+const formatPrice = (price: any, currency = 'USD') => {
+    if (!price || isNaN(price)) return '0.00';
+    if (currency === 'VND') return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(price * EXCHANGE_RATE);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(price);
+};
+
+const formatCompact = (number: any) => {
+    if (!number || isNaN(number)) return '-';
+    if (number >= 1e12) return '$' + (number/1e12).toFixed(2) + "T";
+    if (number >= 1e9) return '$' + (number/1e9).toFixed(2) + "B";
+    if (number >= 1e6) return '$' + (number/1e6).toFixed(2) + "M";
+    return '$' + number.toLocaleString();
+};
+
+const fmtFlow = (val:any) => {
+    const num = typeof val === 'string' ? parseFloat(val.replace(/,/g,'')) : val;
+    if(isNaN(num) || num===0) return <span className="text-slate-700">-</span>;
+    return <span className={`font-mono font-bold ${num>0?'text-emerald-400':'text-rose-400'}`}>{num>0?'+':''}{num.toLocaleString()}</span>;
+};
+
+// --- ON-CHAIN FEED ---
 const OnChainFeed = () => {
   const [txs, setTxs] = useState<any[]>([]);
   useEffect(() => { fetch(`/onchain_flows.json?t=${Date.now()}`).then(r=>r.json()).then(setTxs).catch(()=>{}); }, []);
@@ -56,9 +73,8 @@ const OnChainFeed = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-800/40 text-[10px] font-mono">
                     {txs.slice(0,50).map((tx, i) => {
-                        const isDep = tx.flow_type === 'Deposit' || tx.flow_type === 'Inflow'; // Check cả 2 trường hợp
+                        const isDep = tx.flow_type === 'Deposit' || tx.flow_type === 'Inflow'; 
                         const d = new Date(tx.block_time);
-                        // Tạo Link TX nếu có hash (Dune thường trả về tx_hash hoặc hash)
                         const txHash = tx.tx_hash || tx.hash || tx.tx_id;
                         const txLink = txHash ? `https://mempool.space/tx/${txHash}` : '#';
 
@@ -97,7 +113,7 @@ const OnChainFeed = () => {
   );
 };
 
-// --- COMPONENT: ETF HOLDINGS (LÀM ĐẸP HƠN) ---
+// --- ETF HOLDINGS ---
 const EtfHoldingsWidget = () => {
   const [holdings, setHoldings] = useState<any[]>([]);
   useEffect(() => { 
@@ -109,8 +125,6 @@ const EtfHoldingsWidget = () => {
         }).catch(()=>{}); 
   }, []);
   if (!holdings.length) return null;
-  
-  // Tính tổng để làm thanh phần trăm
   const totalBTC = holdings.reduce((acc, curr) => acc + (parseFloat(curr.tvl || curr.amount) || 0), 0);
 
   return (
@@ -157,7 +171,6 @@ export default function VNMetricsDashboard() {
   const [currency, setCurrency] = useState('USD');
   const [globalStats, setGlobalStats] = useState({ tvl: 0 });
 
-  // Market State
   const [cryptos, setCryptos] = useState<any[]>([]);
   const [selectedCoin, setSelectedCoin] = useState<any>(null);
   const [timeRange, setTimeRange] = useState('1D');
@@ -165,12 +178,11 @@ export default function VNMetricsDashboard() {
   const [status, setStatus] = useState({ market: 'loading' });
   const [imgError, setImgError] = useState<any>({});
 
-  // ETF State
   const [allEtfData, setAllEtfData] = useState<any>({ BTC: [], ETH: [], SOL: [] });
   const [marketMetrics, setMarketMetrics] = useState<any>({ prices: [], oi: [], funding: [] });
   const [etfTicker, setEtfTicker] = useState<'BTC' | 'ETH' | 'SOL'>('BTC');
 
-  // --- CHART LOGIC (Giữ nguyên cái đẹp bạn thích) ---
+  // --- MARKET CHART LOGIC ---
   const fetchChart = async (coinId: string, range: string) => {
     try {
       let days = '1';
@@ -260,7 +272,6 @@ export default function VNMetricsDashboard() {
   const gradientOffset = selectedCoin ? getGradientOffset(selectedCoin.chartData || []) : 0;
   const maxVolume = selectedCoin?.chartData ? Math.max(...selectedCoin.chartData.map((d:any) => d.volume || 0)) : 0;
 
-  // --- ETF TABLE MEMO (Fixed Sticky Columns) ---
   const etfTable = useMemo(() => {
     const rows = allEtfData[etfTicker] || [];
     if (!rows.length) return null;
@@ -269,7 +280,6 @@ export default function VNMetricsDashboard() {
     return { headers: ["Ngày", ...fundTickers, "TỔNG ($M)"], rows, fundTickers };
   }, [allEtfData, etfTicker]);
 
-  // Hàm render số liệu coin chi tiết
   const formatPriceVal = (p:any) => formatPrice(p, currency);
 
   return (
@@ -283,7 +293,7 @@ export default function VNMetricsDashboard() {
          <div className="flex items-center gap-2"><span>VNMetrics System</span><div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div></div>
       </div>
       
-      {/* NAVIGATION */}
+      {/* NAV */}
       <nav className="bg-[#0B0E14]/95 border-b border-slate-800 sticky top-0 z-50 shadow-sm px-4 h-16 flex justify-between items-center backdrop-blur-md">
          <div className="flex items-center gap-2 font-extrabold text-xl text-white font-manrope"><Zap size={24} className="text-blue-600"/> VNMetrics<span className="text-slate-500 font-normal">.io</span></div>
          <div className="hidden md:flex bg-[#151921] p-1 rounded-lg border border-slate-800">
@@ -302,7 +312,7 @@ export default function VNMetricsDashboard() {
       {/* TAB 1: MARKET */}
       {activeTab === 'MARKET' && (
         <div className="animate-in fade-in">
-          {/* Top Cards */}
+          {/* Top Coins */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
              {status.market === 'error' ? <div className="col-span-5 text-center text-rose-500 py-4 font-manrope"><ServerCrash className="mx-auto mb-2"/>Lỗi kết nối CoinGecko.</div> :
              cryptos.slice(0, 5).map(c => {
@@ -323,7 +333,7 @@ export default function VNMetricsDashboard() {
              })}
           </div>
 
-          {/* Chart & Stats */}
+          {/* Chart Area */}
           {selectedCoin && (
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                 <div className="lg:col-span-2 bg-[#151921] p-6 rounded-2xl border border-slate-800 shadow-lg flex flex-col min-h-[550px]">
@@ -466,7 +476,6 @@ export default function VNMetricsDashboard() {
                             <tr>
                                 <th className="p-3 border-b border-slate-800 sticky left-0 bg-[#11141A] z-30 border-r border-slate-800">Ngày</th>
                                 {etfTable?.fundTickers.map((ticker:string) => (<th key={ticker} className="p-3 border-b border-slate-800 text-right">{ticker}</th>))}
-                                {/* STICKY TOTAL COLUMN: FIX CSS */}
                                 <th className="p-3 border-b border-slate-800 text-right text-white bg-[#1E2329] sticky right-0 z-30 border-l border-slate-800">TỔNG</th>
                             </tr>
                         </thead>
@@ -477,7 +486,6 @@ export default function VNMetricsDashboard() {
                                     {etfTable.fundTickers.map((ticker:string) => (
                                         <td key={ticker} className="p-3 text-right border-b border-slate-800/50 font-mono text-slate-400">{r[ticker] ? fmtFlow(r[ticker]) : '-'}</td>
                                     ))}
-                                    {/* STICKY TOTAL COLUMN DATA */}
                                     <td className="p-3 text-right border-b border-slate-800/50 bg-[#1E2329]/90 group-hover:bg-[#1E2329] font-black border-l border-slate-800/50 sticky right-0 z-20">{fmtFlow(r.total)}</td>
                                 </tr>
                             ))}
