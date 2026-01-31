@@ -1,15 +1,15 @@
 {
-  "last_updated": "2026-01-29T05:31:28.602Z",
+  "last_updated": "2026-01-31T05:12:54.738Z",
   "BTC": {
     "headers": [],
     "rows": []
   },
   "ETH": {
-    "error": true,
     "headers": [],
     "rows": []
   },
   "SOL": {
+    "error": true,
     "headers": [],
     "rows": []
   }
