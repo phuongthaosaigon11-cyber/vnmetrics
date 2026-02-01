@@ -1,6 +1,7 @@
 {
-  "last_updated": "2026-01-31T05:12:54.738Z",
+  "last_updated": "2026-02-01T06:04:16.810Z",
   "BTC": {
+    "error": true,
     "headers": [],
     "rows": []
   },
