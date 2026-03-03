@@ -1,10 +1,11 @@
 {
-  "last_updated": "2026-03-02T04:25:02.156Z",
+  "last_updated": "2026-03-03T04:25:03.845Z",
   "BTC": {
     "headers": [],
     "rows": []
   },
   "ETH": {
+    "error": true,
     "headers": [],
     "rows": []
   },
