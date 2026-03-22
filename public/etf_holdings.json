@@ -4,329 +4,329 @@
     "etf_ticker": "IBIT",
     "issuer": "<a href='https://www.blackrock.com/us/financial-professionals/products/333011/ishares-bitcoin-trust' target='_blank'>BlackRock</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.18598059935505395,
+    "percentage_of_total": 0.18556736809819274,
     "plain_issuer": "BlackRock",
-    "tvl": "8.807475720194426E5",
-    "usd_value": 89445702450.12257
+    "tvl": "8.808034066765921E5",
+    "usd_value": 89451372826.3898
   },
   {
     "address_source": "🟠",
     "etf_ticker": "IBIT",
     "issuer": "<a href='https://www.blackrock.com/us/financial-professionals/products/333011/ishares-bitcoin-trust' target='_blank'>BlackRock</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.18598059935505395,
+    "percentage_of_total": 0.18556736809819274,
     "plain_issuer": "BlackRock",
-    "tvl": "8.807475720194426E5",
-    "usd_value": 99554905466.81029
+    "tvl": "8.808034066765921E5",
+    "usd_value": 99561216712.15558
   },
   {
     "address_source": "🟠",
     "etf_ticker": "IBIT",
     "issuer": "<a href='https://www.blackrock.com/us/financial-professionals/products/333011/ishares-bitcoin-trust' target='_blank'>BlackRock</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.18598059935505395,
+    "percentage_of_total": 0.18556736809819274,
     "plain_issuer": "BlackRock",
-    "tvl": "8.807475720194426E5",
-    "usd_value": 61933341361.6895
+    "tvl": "8.808034066765921E5",
+    "usd_value": 62077773361.72873
   },
   {
     "address_source": "🟠",
     "etf_ticker": "FBTC",
     "issuer": "<a href='https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC' target='_blank'>Fidelity</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.043228749109605516,
+    "percentage_of_total": 0.043129964720386514,
     "plain_issuer": "Fidelity",
-    "tvl": "2.0471821228533998E5",
-    "usd_value": 14395592252.785559
+    "tvl": "2.047182122853401E5",
+    "usd_value": 14428248902.009325
   },
   {
     "address_source": "🟠",
     "etf_ticker": "FBTC",
     "issuer": "<a href='https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC' target='_blank'>Fidelity</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.043228749109605516,
+    "percentage_of_total": 0.043129964720386514,
     "plain_issuer": "Fidelity",
-    "tvl": "2.0471821228533998E5",
-    "usd_value": 23140231002.477875
+    "tvl": "2.047182122853401E5",
+    "usd_value": 23140231002.47789
   },
   {
     "address_source": "🟠",
     "etf_ticker": "FBTC",
     "issuer": "<a href='https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=FBTC' target='_blank'>Fidelity</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.043228749109605516,
+    "percentage_of_total": 0.043129964720386514,
     "plain_issuer": "Fidelity",
-    "tvl": "2.0471821228533998E5",
-    "usd_value": 20790479456.23099
+    "tvl": "2.047182122853401E5",
+    "usd_value": 20790479456.231003
   },
   {
     "address_source": "🟠",
     "etf_ticker": "GBTC",
     "issuer": "<a href='https://etfs.grayscale.com/gbtc' target='_blank'>Grayscale</a>",
     "percentage_fee": "1.50%",
-    "percentage_of_total": 0.039850268364891486,
+    "percentage_of_total": 0.039845017704264185,
     "plain_issuer": "Grayscale",
-    "tvl": "1.8871875468954715E5",
-    "usd_value": 19165629420.941826
+    "tvl": "1.8912607153233E5",
+    "usd_value": 19206995122.398083
   },
   {
     "address_source": "🟠",
     "etf_ticker": "GBTC",
     "issuer": "<a href='https://etfs.grayscale.com/gbtc' target='_blank'>Grayscale</a>",
     "percentage_fee": "1.50%",
-    "percentage_of_total": 0.039850268364891486,
+    "percentage_of_total": 0.039845017704264185,
     "plain_issuer": "Grayscale",
-    "tvl": "1.8871875468954715E5",
-    "usd_value": 21331739512.893353
+    "tvl": "1.8912607153233E5",
+    "usd_value": 21377780388.924732
   },
   {
     "address_source": "🟠",
     "etf_ticker": "GBTC",
     "issuer": "<a href='https://etfs.grayscale.com/gbtc' target='_blank'>Grayscale</a>",
     "percentage_fee": "1.50%",
-    "percentage_of_total": 0.039850268364891486,
+    "percentage_of_total": 0.039845017704264185,
     "plain_issuer": "Grayscale",
-    "tvl": "1.8871875468954715E5",
-    "usd_value": 13270525434.139547
+    "tvl": "1.8912607153233E5",
+    "usd_value": 13329336962.577044
   },
   {
     "address_source": "🟠 <a href='https://bitbetf.com/' target='_blank'>🔵</a>",
     "etf_ticker": "BITB",
     "issuer": "<a href='https://bitbetf.com/' target='_blank'>Bitwise</a>",
     "percentage_fee": "0.20%",
-    "percentage_of_total": 0.02187343538489062,
+    "percentage_of_total": 0.022224794036801956,
     "plain_issuer": "Bitwise",
-    "tvl": "1.0358593946773974E5",
-    "usd_value": 10519832712.571274
+    "tvl": "1.0549093033394928E5",
+    "usd_value": 10713297050.824844
   },
   {
     "address_source": "🟠 <a href='https://bitbetf.com/' target='_blank'>🔵</a>",
     "etf_ticker": "BITB",
     "issuer": "<a href='https://bitbetf.com/' target='_blank'>Bitwise</a>",
     "percentage_fee": "0.20%",
-    "percentage_of_total": 0.02187343538489062,
+    "percentage_of_total": 0.022224794036801956,
     "plain_issuer": "Bitwise",
-    "tvl": "1.0358593946773974E5",
-    "usd_value": 11708790054.0632
+    "tvl": "1.0549093033394928E5",
+    "usd_value": 11924119839.379307
   },
   {
     "address_source": "🟠 <a href='https://bitbetf.com/' target='_blank'>🔵</a>",
     "etf_ticker": "BITB",
     "issuer": "<a href='https://bitbetf.com/' target='_blank'>Bitwise</a>",
     "percentage_fee": "0.20%",
-    "percentage_of_total": 0.02187343538489062,
+    "percentage_of_total": 0.022224794036801956,
     "plain_issuer": "Bitwise",
-    "tvl": "1.0358593946773974E5",
-    "usd_value": 7284065892.588358
+    "tvl": "1.0549093033394928E5",
+    "usd_value": 7434850972.815671
   },
   {
     "address_source": "<a href='https://data.chain.link/feeds/base/base/arkb-reserves' target='_blank'>🟢</a>",
     "etf_ticker": "ARKB",
     "issuer": "<a href='https://21shares.com/en-US/product/ARKB' target='_blank'>21Shares</a>",
     "percentage_fee": "0.21%",
-    "percentage_of_total": 0.01837169422036533,
+    "percentage_of_total": 0.018451709405914406,
     "plain_issuer": "21Shares",
-    "tvl": "8.700275800047143E4",
-    "usd_value": 6117952160.00063
+    "tvl": "8.75818236271801E4",
+    "usd_value": 8894509601.92137
   },
   {
     "address_source": "<a href='https://data.chain.link/feeds/base/base/arkb-reserves' target='_blank'>🟢</a>",
     "etf_ticker": "ARKB",
     "issuer": "<a href='https://21shares.com/en-US/product/ARKB' target='_blank'>21Shares</a>",
     "percentage_fee": "0.21%",
-    "percentage_of_total": 0.01837169422036533,
+    "percentage_of_total": 0.018451709405914406,
     "plain_issuer": "21Shares",
-    "tvl": "8.700275800047143E4",
-    "usd_value": 9834317599.342188
+    "tvl": "8.75818236271801E4",
+    "usd_value": 9899772021.87767
   },
   {
     "address_source": "<a href='https://data.chain.link/feeds/base/base/arkb-reserves' target='_blank'>🟢</a>",
     "etf_ticker": "ARKB",
     "issuer": "<a href='https://21shares.com/en-US/product/ARKB' target='_blank'>21Shares</a>",
     "percentage_fee": "0.21%",
-    "percentage_of_total": 0.01837169422036533,
+    "percentage_of_total": 0.018451709405914406,
     "plain_issuer": "21Shares",
-    "tvl": "8.700275800047143E4",
-    "usd_value": 8835701683.067938
+    "tvl": "8.75818236271801E4",
+    "usd_value": 6172642563.054103
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTC",
     "issuer": "<a href='https://etfs.grayscale.com/btc' target='_blank'>Grayscale Mini</a>",
     "percentage_fee": "0.15%",
-    "percentage_of_total": 0.011346105179322247,
+    "percentage_of_total": 0.011439497515454802,
     "plain_issuer": "Grayscale Mini",
-    "tvl": "5.373170439938005E4",
-    "usd_value": 5456807599.054948
+    "tvl": "5.4298061591029975E4",
+    "usd_value": 3826850277.6883335
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTC",
     "issuer": "<a href='https://etfs.grayscale.com/btc' target='_blank'>Grayscale Mini</a>",
     "percentage_fee": "0.15%",
-    "percentage_of_total": 0.011346105179322247,
+    "percentage_of_total": 0.011439497515454802,
     "plain_issuer": "Grayscale Mini",
-    "tvl": "5.373170439938005E4",
-    "usd_value": 6073539027.516944
+    "tvl": "5.4298061591029975E4",
+    "usd_value": 6137556957.814358
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTC",
     "issuer": "<a href='https://etfs.grayscale.com/btc' target='_blank'>Grayscale Mini</a>",
     "percentage_fee": "0.15%",
-    "percentage_of_total": 0.011346105179322247,
+    "percentage_of_total": 0.011439497515454802,
     "plain_issuer": "Grayscale Mini",
-    "tvl": "5.373170439938005E4",
-    "usd_value": 3778362945.562269
+    "tvl": "5.4298061591029975E4",
+    "usd_value": 5514324892.833748
   },
   {
     "address_source": "🟠",
     "etf_ticker": "HODL",
     "issuer": "<a href='https://www.vaneck.com/us/en/investments/bitcoin-trust-hodl/overview/' target='_blank'>VanEck</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.004537406570723562,
+    "percentage_of_total": 0.004535975594307477,
     "plain_issuer": "VanEck",
-    "tvl": "2.1487777941829954E4",
-    "usd_value": 2182225024.6939096
+    "tvl": "2.153020111787001E4",
+    "usd_value": 2186533376.941044
   },
   {
     "address_source": "🟠",
     "etf_ticker": "HODL",
     "issuer": "<a href='https://www.vaneck.com/us/en/investments/bitcoin-trust-hodl/overview/' target='_blank'>VanEck</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.004537406570723562,
+    "percentage_of_total": 0.004535975594307477,
     "plain_issuer": "VanEck",
-    "tvl": "2.1487777941829954E4",
-    "usd_value": 2428861310.154675
+    "tvl": "2.153020111787001E4",
+    "usd_value": 2433656594.7679334
   },
   {
     "address_source": "🟠",
     "etf_ticker": "HODL",
     "issuer": "<a href='https://www.vaneck.com/us/en/investments/bitcoin-trust-hodl/overview/' target='_blank'>VanEck</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.004537406570723562,
+    "percentage_of_total": 0.004535975594307477,
     "plain_issuer": "VanEck",
-    "tvl": "2.1487777941829954E4",
-    "usd_value": 1511000346.358217
+    "tvl": "2.153020111787001E4",
+    "usd_value": 1517418001.9018908
   },
   {
     "address_source": "🟠",
     "etf_ticker": "EZBC",
     "issuer": "<a href='https://www.franklintempleton.com/investments/options/exchange-traded-funds/products/39639/SINGLCLASS/franklin-bitcoin-etf/EZBC' target='_blank'>Franklin Templeton</a>",
     "percentage_fee": "0.19%",
-    "percentage_of_total": 0.0026101924758509037,
+    "percentage_of_total": 0.002616771649813601,
     "plain_issuer": "Franklin Templeton",
-    "tvl": "1.2361077948889986E4",
-    "usd_value": 1255348677.9919024
+    "tvl": "1.242061795277999E4",
+    "usd_value": 1261395356.5647578
   },
   {
     "address_source": "🟠",
     "etf_ticker": "EZBC",
     "issuer": "<a href='https://www.franklintempleton.com/investments/options/exchange-traded-funds/products/39639/SINGLCLASS/franklin-bitcoin-etf/EZBC' target='_blank'>Franklin Templeton</a>",
     "percentage_fee": "0.19%",
-    "percentage_of_total": 0.0026101924758509037,
+    "percentage_of_total": 0.002616771649813601,
     "plain_issuer": "Franklin Templeton",
-    "tvl": "1.2361077948889986E4",
-    "usd_value": 1397228883.4677026
+    "tvl": "1.242061795277999E4",
+    "usd_value": 1403958961.0144074
   },
   {
     "address_source": "🟠",
     "etf_ticker": "EZBC",
     "issuer": "<a href='https://www.franklintempleton.com/investments/options/exchange-traded-funds/products/39639/SINGLCLASS/franklin-bitcoin-etf/EZBC' target='_blank'>Franklin Templeton</a>",
     "percentage_fee": "0.19%",
-    "percentage_of_total": 0.0026101924758509037,
+    "percentage_of_total": 0.002616771649813601,
     "plain_issuer": "Franklin Templeton",
-    "tvl": "1.2361077948889986E4",
-    "usd_value": 869219381.9526719
+    "tvl": "1.242061795277999E4",
+    "usd_value": 875387516.0344408
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCO",
     "issuer": "<a href='https://www.invesco.com/us/financial-products/etfs/product-detail?ticker=BTCO' target='_blank'>Invesco</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.002339318455899231,
+    "percentage_of_total": 0.002333972750792936,
     "plain_issuer": "Invesco",
-    "tvl": "1.107830094837002E4",
-    "usd_value": 1125074245.7442064
+    "tvl": "1.1078300948370113E4",
+    "usd_value": 1125074245.744216
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCO",
     "issuer": "<a href='https://www.invesco.com/us/financial-products/etfs/product-detail?ticker=BTCO' target='_blank'>Invesco</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.002339318455899231,
+    "percentage_of_total": 0.002333972750792936,
     "plain_issuer": "Invesco",
-    "tvl": "1.107830094837002E4",
-    "usd_value": 1252230762.4635785
+    "tvl": "1.1078300948370113E4",
+    "usd_value": 1252230762.463589
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCO",
     "issuer": "<a href='https://www.invesco.com/us/financial-products/etfs/product-detail?ticker=BTCO' target='_blank'>Invesco</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.002339318455899231,
+    "percentage_of_total": 0.002333972750792936,
     "plain_issuer": "Invesco",
-    "tvl": "1.107830094837002E4",
-    "usd_value": 779015709.0864884
+    "tvl": "1.1078300948370113E4",
+    "usd_value": 780782919.6537789
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCW",
     "issuer": "<a href='https://www.wisdomtree.com/investments/etfs/crypto/btcw' target='_blank'>WisdomTree</a>",
     "percentage_fee": "0.30%",
-    "percentage_of_total": 0.0018903658626552647,
+    "percentage_of_total": 0.0018860460837814745,
     "plain_issuer": "WisdomTree",
-    "tvl": "8.952197968690003E3",
-    "usd_value": 909154519.6611242
+    "tvl": "8.952197968689878E3",
+    "usd_value": 909154519.6611115
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCW",
     "issuer": "<a href='https://www.wisdomtree.com/investments/etfs/crypto/btcw' target='_blank'>WisdomTree</a>",
     "percentage_fee": "0.30%",
-    "percentage_of_total": 0.0018903658626552647,
+    "percentage_of_total": 0.0018860460837814745,
     "plain_issuer": "WisdomTree",
-    "tvl": "8.952197968690003E3",
-    "usd_value": 1011907668.9017886
+    "tvl": "8.952197968689878E3",
+    "usd_value": 1011907668.9017744
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BTCW",
     "issuer": "<a href='https://www.wisdomtree.com/investments/etfs/crypto/btcw' target='_blank'>WisdomTree</a>",
     "percentage_fee": "0.30%",
-    "percentage_of_total": 0.0018903658626552647,
+    "percentage_of_total": 0.0018860460837814745,
     "plain_issuer": "WisdomTree",
-    "tvl": "8.952197968690003E3",
-    "usd_value": 629510146.0921904
+    "tvl": "8.952197968689878E3",
+    "usd_value": 630938200.712147
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BRRR",
     "issuer": "<a href='https://valkyrieinvest.com/brrr/' target='_blank'>Valkyrie</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.001305198354072603,
+    "percentage_of_total": 0.0013022157736169461,
     "plain_issuer": "Valkyrie",
-    "tvl": "6.181022565469968E3",
-    "usd_value": 627723450.8417305
+    "tvl": "6.181022565469961E3",
+    "usd_value": 627723450.8417296
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BRRR",
     "issuer": "<a href='https://valkyrieinvest.com/brrr/' target='_blank'>Valkyrie</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.001305198354072603,
+    "percentage_of_total": 0.0013022157736169461,
     "plain_issuer": "Valkyrie",
-    "tvl": "6.181022565469968E3",
-    "usd_value": 698669104.2277434
+    "tvl": "6.181022565469961E3",
+    "usd_value": 698669104.2277426
   },
   {
     "address_source": "🟠",
     "etf_ticker": "BRRR",
     "issuer": "<a href='https://valkyrieinvest.com/brrr/' target='_blank'>Valkyrie</a>",
     "percentage_fee": "0.25%",
-    "percentage_of_total": 0.001305198354072603,
+    "percentage_of_total": 0.0013022157736169461,
     "plain_issuer": "Valkyrie",
-    "tvl": "6.181022565469968E3",
-    "usd_value": 434643696.6426366
+    "tvl": "6.181022565469961E3",
+    "usd_value": 435629693.3622799
   }
 ]
