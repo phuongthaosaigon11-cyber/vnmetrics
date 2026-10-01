@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-09-30T08:48:06.604Z",
+  "last_updated": "2026-10-01T09:12:45.827Z",
   "BTC": {
     "error": true,
     "headers": [],
@@ -10,6 +10,7 @@
     "rows": []
   },
   "SOL": {
+    "error": true,
     "headers": [],
     "rows": []
   }
